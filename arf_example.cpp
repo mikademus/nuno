@@ -1,4 +1,7 @@
-#include "include/arf.hpp"
+#include "include/arf_core.hpp"
+#include "include/arf_parser.hpp"
+#include "include/arf_serializer.hpp"
+#include "include/arf_query.hpp"
 #include <iostream>
 #include <iomanip>
 
@@ -110,7 +113,19 @@ void test_parsing()
 {
     print_separator("TEST 1: Basic Parsing");
     
-    arf::document doc = arf::parse(example_config);
+    auto result = arf::parse(example_config);
+    
+    if (!result.has_value())
+    {
+        std::cout << "✗ Parse failed with errors:\n";
+        for (const auto& err : result.errors)
+        {
+            std::cout << "  " << err.to_string() << "\n";
+        }
+        return;
+    }
+    
+    arf::document& doc = *result.doc;
     
     std::cout << "✓ Parsed " << doc.categories.size() << " top-level categories\n";
     
@@ -127,7 +142,14 @@ void test_table_access()
 {
     print_separator("TEST 2: Table Data Access");
     
-    arf::document doc = arf::parse(example_config);
+    auto result = arf::parse(example_config);
+    if (!result.has_value())
+    {
+        std::cout << "✗ Parse failed\n";
+        return;
+    }
+    
+    arf::document& doc = *result.doc;
     
     if (doc.categories.count("server"))
     {
@@ -170,7 +192,14 @@ void test_key_value_queries()
 {
     print_separator("TEST 3: Key-Value Queries");
     
-    arf::document doc = arf::parse(example_config);
+    auto result = arf::parse(example_config);
+    if (!result.has_value())
+    {
+        std::cout << "✗ Parse failed\n";
+        return;
+    }
+    
+    arf::document& doc = *result.doc;
     
     // Query simple values
     auto version = arf::get_string(doc, "server.version");
@@ -197,7 +226,14 @@ void test_array_values()
 {
     print_separator("TEST 4: Array Values");
     
-    arf::document doc = arf::parse(example_config);
+    auto result = arf::parse(example_config);
+    if (!result.has_value())
+    {
+        std::cout << "✗ Parse failed\n";
+        return;
+    }
+    
+    arf::document& doc = *result.doc;
     
     if (doc.categories.count("characters"))
     {
@@ -226,7 +262,14 @@ void test_hierarchical_tables()
 {
     print_separator("TEST 5: Hierarchical Table Continuation");
     
-    arf::document doc = arf::parse(example_config);
+    auto result = arf::parse(example_config);
+    if (!result.has_value())
+    {
+        std::cout << "✗ Parse failed\n";
+        return;
+    }
+    
+    arf::document& doc = *result.doc;
     
     if (doc.categories.count("monsters"))
     {
@@ -259,7 +302,18 @@ void test_serialization()
 {
     print_separator("TEST 6: Round-Trip Serialization");
     
-    arf::document doc = arf::parse(example_config);
+    auto result = arf::parse(example_config);
+    if (!result.has_value())
+    {
+        std::cout << "✗ Parse failed\n";
+        for (const auto& err : result.errors)
+        {
+            std::cout << "  " << err.to_string() << "\n";
+        }
+        return;
+    }
+    
+    arf::document& doc = *result.doc;
     std::string serialized = arf::serialize(doc);
     
     std::cout << "Original size: " << strlen(example_config) << " bytes\n";
@@ -272,7 +326,14 @@ void test_serialization()
     std::cout << std::string(70, '-') << "\n\n";
     
     // Parse the serialized output
-    arf::document doc2 = arf::parse(serialized);
+    auto result2 = arf::parse(serialized);
+    if (!result2.has_value())
+    {
+        std::cout << "✗ Re-parse failed\n";
+        return;
+    }
+    
+    arf::document& doc2 = *result2.doc;
     std::cout << "✓ Re-parsed successfully: " << doc2.categories.size() << " categories\n";
     
     // Verify key values match
@@ -285,72 +346,83 @@ void test_serialization()
         std::cout << "✗ Round-trip verification failed\n";
 }
 
-void test_c_api()
-{
-    print_separator("TEST 7: C API Compatibility");
-    
-    // Parse using C API
-    arf_document_t* doc = arf_parse(example_config);
-    if (!doc)
-    {
-        std::cout << "✗ Failed to parse with C API\n";
-        return;
-    }
-    std::cout << "✓ Parsed with C API\n";
-    
-    // Query string value
-    char* version = arf_get_string(doc, "server.version");
-    if (version)
-    {
-        std::cout << "  Server version: " << version << "\n";
-        arf_free_string(version);
-    }
-    
-    // Query int value
-    int64_t fps;
-    if (arf_get_int(doc, "game_settings.target_fps", &fps))
-        std::cout << "  Target FPS: " << fps << "\n";
-    
-    // Query float value
-    double volume;
-    if (arf_get_float(doc, "game_settings.audio.master_volume", &volume))
-        std::cout << "  Master volume: " << volume << "\n";
-    
-    // Query bool value
-    int vsync;
-    if (arf_get_bool(doc, "game_settings.vsync_enabled", &vsync))
-        std::cout << "  VSync: " << (vsync ? "enabled" : "disabled") << "\n";
-    
-    // Serialize using C API
-    char* serialized = arf_serialize(doc);
-    if (serialized)
-    {
-        std::cout << "\n✓ Serialized with C API (" << strlen(serialized) << " bytes)\n";
-        arf_free_string(serialized);
-    }
-    
-    // Clean up
-    arf_free_document(doc);
-    std::cout << "✓ Memory cleaned up\n";
-}
-
 void test_edge_cases()
 {
-    print_separator("TEST 8: Edge Cases");
+    print_separator("TEST 7: Edge Cases");
     
     // Empty document
-    arf::document empty = arf::parse("");
-    std::cout << "✓ Empty document: " << empty.categories.size() << " categories\n";
-    
-    // Query non-existent path
-    auto missing = arf::get_string(empty, "does.not.exist");
-    std::cout << "✓ Non-existent query: " << (missing ? "found" : "not found") << "\n";
+    auto empty_result = arf::parse("");
+    if (empty_result.has_value())
+    {
+        std::cout << "✓ Empty document: " << empty_result.doc->categories.size() << " categories\n";
+        
+        // Query non-existent path
+        auto missing = arf::get_string(*empty_result.doc, "does.not.exist");
+        std::cout << "✓ Non-existent query: " << (missing ? "found" : "not found") << "\n";
+    }
+    else
+    {
+        std::cout << "✗ Empty document parse failed\n";
+    }
     
     // Minimal document
     const char* minimal = "test:\n  key = value\n/test\n";
-    arf::document minimal_doc = arf::parse(minimal);
-    auto value = arf::get_string(minimal_doc, "test.key");
-    std::cout << "✓ Minimal document query: " << (value ? *value : "N/A") << "\n";
+    auto minimal_result = arf::parse(minimal);
+    if (minimal_result.has_value())
+    {
+        auto value = arf::get_string(*minimal_result.doc, "test.key");
+        std::cout << "✓ Minimal document query: " << (value ? *value : "N/A") << "\n";
+    }
+    else
+    {
+        std::cout << "✗ Minimal document parse failed\n";
+    }
+}
+
+void test_error_handling()
+{
+    print_separator("TEST 8: Error Handling");
+    
+    // Test various error conditions
+    const char* invalid_syntax = R"(
+invalid line without proper syntax
+server:
+  key = value
+  another invalid line
+/server
+)";
+    
+    auto result = arf::parse(invalid_syntax);
+    if (result.has_errors())
+    {
+        std::cout << "✓ Parse errors detected (" << result.errors.size() << " errors):\n";
+        for (const auto& err : result.errors)
+        {
+            std::cout << "  " << err.to_string() << "\n";
+        }
+    }
+    else
+    {
+        std::cout << "✗ Expected parse errors but got none\n";
+    }
+    
+    // Test mismatched types
+    const char* type_mismatch = R"(
+types:
+  number:int = not_a_number
+  flag:bool = maybe
+/types
+)";
+    
+    auto result2 = arf::parse(type_mismatch);
+    if (result2.has_errors())
+    {
+        std::cout << "\n✓ Type mismatch errors detected (" << result2.errors.size() << " errors):\n";
+        for (const auto& err : result2.errors)
+        {
+            std::cout << "  " << err.to_string() << "\n";
+        }
+    }
 }
 
 int main()
@@ -363,7 +435,7 @@ int main()
 /_/   |_|_| |_| (_) 
                     
 A Readable Format - Example & Test Suite
-Version 0.1.0
+Version 0.2.0
 )" << std::endl;
     
     try
@@ -374,8 +446,8 @@ Version 0.1.0
         test_array_values();
         test_hierarchical_tables();
         test_serialization();
-        //test_c_api();
         test_edge_cases();
+        test_error_handling();
         
         print_separator("ALL TESTS COMPLETED");
         std::cout << "✓ All tests passed successfully!\n\n";
