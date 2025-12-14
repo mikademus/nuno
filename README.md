@@ -206,7 +206,7 @@ More notes:
 
 ## Tables
 
-Tables are declared by by a hash (```#```) character as the table designator and the table headers are the names of the tabular data. 
+Tables are declared by a hash (```#```) character as the table designator and the table headers are the names of the tabular data. 
 Columns are separated by **two or more spaces**.
 ```
 # name    type    value
@@ -249,11 +249,12 @@ items:
 ```
 
 Characteristics:
-* subcategories do not restart the table
-* header applies across all subcategories
-* each category is closed explicitly
-* closing a subcategory containing a table (the *owning category*) also closes the table
-* closing a subcategory started inside the table returns to and continues the previous category in the nesting hierarchy. 
+* Subcategories *participate* in (see and can add rows to) the table. They do not inherit or copy it.
+* Subcategories do not restart the table.
+* The header applies across all subcategories.
+* Each category is closed explicitly.
+* Closing a subcategory containing a table (the *owning category*) also closes the table.
+* Closing a subcategory started inside the table returns to and continues the previous category in the nesting hierarchy.
 
 Example of a table wrapped in an owning category:
 ```
