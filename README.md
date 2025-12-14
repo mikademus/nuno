@@ -54,6 +54,7 @@ entities:
     10   villager  Maren
     11   guard     Thalk
   /humanoids
+    100  boss      Demon Lord
 /entities
 ```
 This example is intentionally verbose by using example explicit closure of subcategories by-name in the table. Short-hand syntax exists.
@@ -75,7 +76,7 @@ Arf! attempts to unify the strengths of each:
 # Syntax Overview
 ## Basic constructs
 ### Whitespace
-Outside tables whitespace is purely cosmetic for the benefit of human readers. Writers are encouraged to use indentation, empty lines and comments to structure their files for the sake of presentation. However, see the section on tables, below.
+Outside tables whitespace is purely cosmetic for the benefit of human readers. Writers are encouraged to use indentation, empty lines and comments to structure their files for the sake of presentation. Inside tables cells are separated by **two or more spaces**.
 
 ### Key/Value Pairs
 ```
@@ -186,17 +187,19 @@ More notes:
 
 ## Tables
 
-A table begins with a header:
+Tables are declared by by a hash (```#```) character as the table designator and the table headers are the names of the tabular data. 
+Columns are separated by **two or more spaces**.
 ```
 # name    type    value
 ```
-where the hash (```#```) is the table designator and the table headers are the names of the tabular data. Columns are separated by **two or more spaces**.
 
-Rows follow the header until:
-* a blank line
-* end of file
-* an explicit top-level category closure
-* a new top-level category line
+A table is scoped to the category in which its header is defined. The table remains active while parsing that category and any of its subcategories, and ends when that category is closed or when non-table data is encountered.
+
+Or more formally, a table remains active until one of the following occurs:
+* a key–value pair is encountered within the table’s owning category or its subcategories,
+* a new table header is defined,
+* the category in which the table was defined is closed,
+* or a new top-level category begins.
 
 Example:
 ```
@@ -224,7 +227,6 @@ Characteristics:
 * subcategories do not restart the table
 * header applies across all subcategories
 * each category is closed explicitly
-* a blank line would terminate the entire table
 * closing a subcategory containing a table also closes the table
 
 Example of a table wrapped in a category:
@@ -237,37 +239,6 @@ Example of a table wrapped in a category:
 Closing header closes the table within it.
 
 Closing a subcategory returns to and continues the previous category in the nesting hierarchy. 
-
-### Whitespace rules
-Outside tables:
-* empty lines mean nothing
-* writers may space out content however they wish
-
-Inside tables:
-* a single empty line terminates the table
-* empty lines MUST NOT be used for visual grouping inside a table
-* writers should use comment lines for visual grouping
-* This preserves parsing sanity and avoids hierarchical ambiguity.
-
-Special case:
-In tables, empty lines are allowed between explicitly closed subcategories to allow for breaking large tables:
-```
-# id  a     b
-  0   foo   13
-  1   bar   42
-:sub1
-  2   foo1  130
-  3   foo2  131
-  4   foo3  132
-/sub1
-
-:sub2
-  5   bar1  420
-  6   bar2  421
-/sub2
-```
-> [!TIP]
-> Tables were intended to be contiguous with an empty line always ending it, but this exception allows for visual separation. I am looking for feedback if this is desirable or a design wart.
 
 ## Practical Demonstration
 A larger example showing structure, nested categories, tables, and explicit closure:
