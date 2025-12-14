@@ -3,12 +3,12 @@
 | **A tiny, human-centred data language for hierarchical configs and tables** |
 |-----------------------------------------------------------------------------|
 
-Arf! (“A Readable Format”, also the bark of an enthusiastic small dog) is a compact, predictable data language built for human readability without giving up structure. It mixes hierarchical categories, key/value pairs, and TOOL-style tables that can be subdivided into named subsections.
+Arf! (“A Readable Format”, also the bark of an enthusiastic small dog) is a compact, predictable, deterministic and explicitly scoped data language built for human readability without giving up structure. It mixes hierarchical categories, key/value pairs, and TOOL-style tables (column-aligned, whitespace-delimited) that can be subdivided into named subsections.
 
 The goals are simple:
 
 * Allow key/value and tabular data
-* Minimal syntax, predictable parsing, indentation-free structure
+* Minimal syntax, predictable parsing, indentation-independent structure
 * Be an improvement over leading alternatives:
   * Easier to write and read than JSON
   * Less fragile and surprising than YAML
@@ -54,13 +54,13 @@ entities:
     100  boss      Demon Lord
 /entities
 ```
-This example is intentionally verbose by using example explicit closure of subcategories by-name in the table. Short-hand syntax exists.
+This example is intentionally verbose, using explicit named closures inside a table to demonstrate scope. Shorthand syntax exists.
 
 ## Rationale
 
 * JSON is rigid and noisy.
 * YAML is permissive to the point of being a riddle.
-* TOML is reliable but verbose.
+* TOML is reliable but structurally repetitive.
 * TOOL tables are lovely but limited.
 
 Arf! attempts to unify the strengths of each:
@@ -95,7 +95,7 @@ Supported data types are:
   * str
   * float
   * bool
-  * date
+  * date (ISO 8601, "YYYY-MM-DD")
 * Lists (items separated by pipes |):
   * str[]
   * int[]
@@ -109,14 +109,14 @@ Supported data types are:
 ## Categories and hierarchies
 The file can be structured into categories and subcategories to form a hierarchy.
 
-Category are explicitly declared (```name:``` or ```:name```) and closed (```/name```). See below for rules on automatic closing of categories.  
+Categories are explicitly declared (```name:``` or ```:name```) and closed (```/name```). See below for rules on automatic closing of categories.  
 
 A **top-level category** is a name that ends with a colon:
 ```
 settings:
 graphics:
 ```
-Top-level categories always orginate from the root and reset any existing nesting, thus they do not need to but may be explicitly closed.
+Top-level categories always originate from the root and reset any existing nesting of subcategories, thus they do not need to but may be explicitly closed.
 
 Note that Arf allows for definitions in the root:
 ```
@@ -163,7 +163,7 @@ top:
 ### Notes
 Closing subcategories:
 * The ```/``` without name will only close the most recent subcategory.
-* Remember that a new top-level catgegory will reset the nesting:
+* Remember that a new top-level category will reset the nesting:
 ```
 top1:
   :sub1
@@ -180,7 +180,7 @@ More notes:
 * Categories are not opened or closed by indentation.
 * Categories remain open until explicitly closed or until a new top-level category begins.
 * Subcategories must be closed explicitly unless the file ends or a new top-level category is declared.
-* Subcategories can only be declared inside other categegories. 
+* Subcategories can only be declared inside other categories. 
 
 ## Tables
 
@@ -246,17 +246,17 @@ Closing a subcategory returns to and continues the previous category in the nest
 A larger example showing structure, nested categories, tables, and explicit closure:
 ```
 world:
-    name = "Eldershade"
+    name = Eldershade
     seed = 1234
 
 :graphics
-    resolution = "1920x1080"
+    resolution = 1920x1080
     fullscreen = false
     gamma = 1.2
 /graphics
 
 :entities
-    description = "List of all active world entities"
+    description = List of all active world entities
 
       # id   type       name
         0    nothing    Nothing
