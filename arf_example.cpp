@@ -69,7 +69,7 @@ monsters:
       5       skeleton         314
       6       zombie           999
   /undead
-  
+
       7       kobold           3
       8       orc              10
 /monsters

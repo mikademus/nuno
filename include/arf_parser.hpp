@@ -91,17 +91,19 @@ namespace arf
                 
                 if (trimmed.empty()) 
                 {
-                    if (in_table_mode_ && category_stack_.size() == table_mode_depth_)
-                    {
-                        in_table_mode_ = false;
-                        table_mode_depth_ = 0;
-                    }
                     return;
                 }
                 
                 // Comments
                 if (trimmed.size() >= 2 && trimmed[0] == '/' && trimmed[1] == '/')
                     return;
+                
+                // Subcategory close (must check before top-level category to handle /category:)
+                if (trimmed[0] == '/' && trimmed.size() > 1 && trimmed[1] != '/') 
+                {
+                    parse_subcategory_close(trimmed);
+                    return;
+                }
                 
                 // Top-level category
                 if (!trimmed.empty() && trimmed.back() == ':' && trimmed[0] != ':' && trimmed[0] != '#') 
@@ -117,13 +119,6 @@ namespace arf
                     return;
                 }
                 
-                // Subcategory close
-                if (trimmed[0] == '/') 
-                {
-                    parse_subcategory_close(trimmed);
-                    return;
-                }
-                
                 // Table header
                 if (trimmed[0] == '#') 
                 {
@@ -131,19 +126,22 @@ namespace arf
                     return;
                 }
                 
-                // Key-value pair (not in table mode)
-                if (trimmed.find('=') != std::string_view::npos && !in_table_mode_) 
+                // Key-value pair (check BEFORE table rows, even in table mode)
+                // This allows subcategories to override table mode with key-value pairs
+                if (trimmed.find('=') != std::string_view::npos) 
                 {
                     parse_key_value(trimmed);
                     return;
                 }
                 
                 // Table row
-                if (in_table_mode_) 
+                if (in_table_mode_ ||
+                    (!category_stack_.empty() &&
+                    !category_stack_.back()->table_columns.empty()))
                 {
                     parse_table_row(trimmed);
                     return;
-                }
+                }                
                 
                 // Unrecognized line
                 add_error("Unrecognized line syntax");
@@ -180,28 +178,43 @@ namespace arf
                 category* parent = category_stack_.back();
                 auto subcat = std::make_unique<category>();
                 subcat->name = name;
-                
-                if (in_table_mode_)
-                    subcat->table_columns = current_table_;
-                
+                                
                 category* ptr = subcat.get();
                 parent->subcategories[name] = std::move(subcat);
                 category_stack_.push_back(ptr);
+                
+                // When entering a subcategory, we stay in table mode IF the parent was in table mode
+                // But the subcategory can override this with its own # header or key=value pairs
             }
             
             void parse_subcategory_close(std::string_view line) 
             {
-                if (category_stack_.size() <= 1) 
+                std::string name = to_lower(std::string(trim_sv(line.substr(1))));
+                
+                // Check if this is a top-level category close (starts with /)
+                // If we're at depth 1 (only root in stack), this closes the current top-level category
+                if (category_stack_.size() == 1)
                 {
-                    add_error("Closing subcategory without open subcategory");
+                    // Closing a top-level category - this is fine, just ignore it
+                    // The next top-level category will reset the stack anyway
+                    in_table_mode_ = false;
+                    current_table_.clear();
+                    table_mode_depth_ = 0;
                     return;
                 }
                 
-                std::string name = to_lower(std::string(trim_sv(line.substr(1))));
-                
+                // We're in a subcategory - try to close it
                 if (name.empty() || category_stack_.back()->name == name) 
                 {
                     category_stack_.pop_back();
+                    
+                    // Exit table mode if we're back at the level where table was defined
+                    if (in_table_mode_ && category_stack_.size() < table_mode_depth_)
+                    {
+                        in_table_mode_ = false;
+                        current_table_.clear();
+                        table_mode_depth_ = 0;
+                    }
                 } 
                 else 
                 {
@@ -214,6 +227,14 @@ namespace arf
                             size_t pos = std::distance(category_stack_.begin(), it.base()) - 1;
                             category_stack_.erase(category_stack_.begin() + pos + 1, category_stack_.end());
                             found = true;
+                            
+                            // Exit table mode if appropriate
+                            if (in_table_mode_ && category_stack_.size() < table_mode_depth_)
+                            {
+                                in_table_mode_ = false;
+                                current_table_.clear();
+                                table_mode_depth_ = 0;
+                            }
                             break;
                         }
                     }
@@ -223,14 +244,6 @@ namespace arf
                         if (category_stack_.size() > 1)
                             category_stack_.pop_back();
                     }
-                }
-                
-                // Restore table columns if needed
-                if (in_table_mode_ && !category_stack_.empty())
-                {
-                    category* current = category_stack_.back();
-                    if (current->table_columns.empty() && !current_table_.empty())
-                        current->table_columns = current_table_;
                 }
             }
             
@@ -301,6 +314,18 @@ namespace arf
                     key = to_lower(std::string(key_part));
                 }
                 
+                // If we see a key-value pair, we're no longer in table mode
+                // This handles the case where a subcategory has key-value pairs
+                // after inheriting a table structure
+                if (in_table_mode_)
+                {
+                    in_table_mode_ = false;
+                    current_table_.clear(); // Clear the parser's table state
+                    // Clear the inherited table structure from current category
+                    if (!category_stack_.empty())
+                        category_stack_.back()->table_columns.clear();
+                }
+                
                 // Parse and store typed value
                 if (!category_stack_.empty())
                 {
@@ -317,6 +342,9 @@ namespace arf
                 if (current_table_.empty() || category_stack_.empty()) return;
                 
                 std::vector<std::string> cells = split_table_cells(line);
+                
+                // If split_table_cells returned empty, this isn't a valid table row
+                if (cells.empty()) return;
                 
                 if (cells.size() != current_table_.size())
                 {
@@ -375,6 +403,13 @@ namespace arf
                 
                 if (!current.empty())
                     cells.push_back(std::string(trim_sv(current)));
+                
+                // If we only got 1 cell and it contains '=', this is likely a key-value pair
+                // that shouldn't be parsed as a table row at all
+                if (cells.size() == 1 && cells[0].find('=') != std::string::npos)
+                {
+                    cells.clear(); // Return empty to signal this isn't a valid table row
+                }
                 
                 return cells;
             }
