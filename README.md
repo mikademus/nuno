@@ -1,8 +1,6 @@
 # Arf! — A Readable Format
 
-![mascot](arf_mascot.png)
-
-| **A tiny, human-centred data language for hierarchical configs and tables; Readable by humans, trivial to parse by machines** |
+| **A tiny, human-centred data language for hierarchical configs and tables; Readable by humans, trivial to parse by machines** ![mascot](arf_mascot_small.png) |
 |-------------------------------------------------------------------------------------------------------------------------------|
 
 Arf! (“A Readable Format”, also the bark of an enthusiastic small dog) is a compact, predictable, deterministic and explicitly scoped data language built for human readability without giving up structure. It mixes hierarchical categories, key/value pairs, and TOOL-style tables (column-aligned, whitespace-delimited) that can be subdivided into named subsections.
@@ -366,3 +364,5 @@ Arf! brings TOOL’s tabular clarity into a hierarchical world.
   * Parsing is driven by syntax, not layout.
 * No support for preserving trailing whitespace
   * Invisible state is hostile to humans.
+
+![mascot](arf_mascot.png)
