@@ -123,6 +123,8 @@ Supported data types are:
   * int[]
   * float[]
 
+Boolean arrays are currently unsupported. This is a deliberate design choice rather than a technical limitation: without an explicit schema, positional boolean values are typically hard to interpret and offer poor readability. Support may be added if a convincing real-world use case emerges. Similarly, arrays of dates await use cases.
+
 ### Line comments
 ```
 // familiar from C++, Java, C#, etc.
