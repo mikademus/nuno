@@ -9,22 +9,25 @@ std::string example_config = obtain_arf_data_from_somewhere();
 auto result = arf::parse(example_config);    
 if (result.has_value())
 {
-    // result->doc containts the parsed document
+    // result->doc contains the parsed document
 }
 if (result.has_errors())
 {
     // result.errors contains the errors emitted when parsing
 }
 ```
+## Note on data types
+
+Arf! uses the names "float" and "int" to annotate value types. Internally these are stored as ```double``` and ```int64_t```; the "float" and "int" names are convenience types.
 
 ## Paths and structured queries
 
 Basic data (key/value pairs) are accessed through string paths. 
-Arrays and tables are accessed through structured APIs.
+Arrays and tables are accessed through structured APIs and are not addressable via string paths.
 
 ## Querying key\value data
 
-Key/value data queries are **path-centric** and accessed by dot-separated path, where the last segment is the key (the name of the value). If the path resolves to a category, table, or anything non-scalar, the query simply fails with std::nullopt.
+Key/value data queries are **path-centric** and accessed by dot-separated path, where the last segment is the key (the name of the value). If the path resolves to a category, table, or anything non-scalar, the query returns std::nullopt without error.
 
 ```
 // foo is declared in the root:
@@ -88,15 +91,17 @@ for (auto & [name, subcat] : monsters->subcategories)
 ```
 The values are obtained through ```std::get<T>(cell)```
 ```
-auto id = std::get<std::string>(row[0]);
+auto id = std::get<int>(row[0]);
 auto name = std::get<std::string>(row[1]);
 auto count = std::get<int64_t>(row[2]);
 ```
-Note that sub-rows (table rows under table subcategories) are not enumerated of part of the higher-category and must be manually collected from the subcategory.
+Note that sub-rows (table rows under table subcategories) are not enumerated as part of the higher category and must be manually collected from the subcategory.
 
 ## Querying arrays
 
-Arrays are explicitly obtained from key/values:
+Arrays are stored as typed std::vector<T> values and must be extracted using ```std::get```. 
+
+From key/values:
 ```
 auto v = get_value(doc, "player.tags");
 auto const & tags = std::get<std::vector<std::string>>(*v);
