@@ -17,9 +17,14 @@ if (result.has_errors())
 }
 ```
 
+## Paths and structured queries
+
+Basic data (key/value pairs) are accessed through string paths. 
+Arrays and tables are accessed through structured APIs.
+
 ## Querying key\value data
 
-Key/value data is accessed by dot-separated path, where the last segment is assumed to be the key (the name of the value). 
+Key/value data queries are **path-centric** and accessed by dot-separated path, where the last segment is the key (the name of the value). If the path resolves to a category, table, or anything non-scalar, the query simply fails with std::nullopt.
 
 ```
 // foo is declared in the root:
@@ -43,9 +48,9 @@ Accessor functions all take the document and a path as arguments and returns a s
 
 If the value at the path is of the requested type it is returned as such, otherwise a conversion is attempted. Failures result in ```std::nullopt```.
 
-## Querying tabular data
+## Querying tables
 
-Given the table
+Table queries are **structure-centric** and the table tree is navigated explicitly. Given the table
 ```
 monsters:
     # id:int  name:str         count:int
@@ -88,3 +93,16 @@ auto name = std::get<std::string>(row[1]);
 auto count = std::get<int64_t>(row[2]);
 ```
 Note that sub-rows (table rows under table subcategories) are not enumerated of part of the higher-category and must be manually collected from the subcategory.
+
+## Querying arrays
+
+Arrays are explicitly obtained from key/values:
+```
+auto v = get_value(doc, "player.tags");
+auto const & tags = std::get<std::vector<std::string>>(*v);
+```
+and from a table row,
+```
+auto const & skills = std::get<std::vector<std::string>>(row[5]);
+
+```
