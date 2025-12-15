@@ -24,10 +24,10 @@ The goals are simple:
 | :---                    | ---   | ---   | ---   | ---   | ---   | --- |
 | Comments	               | ❌	   | ✅	   | ✅	   | ⚠️    | ✅    | TOON: By convention, not by specification  |
 | Key/values	             | ✅	   | ✅	   | ✅	   | ❌    | ✅    |     |
-| Native Tables	          | ❌	   | ❌	   | ❌	   | ✅    | ✅    |     |
+| Native Tables	          | ❌	   | ❌	   | ❌	   | ✅    | ✅    | TOON: CSV-style tabular arrays |
 | No-Quote Strings	       | ❌	   | ✅	   | ❌	   | ✅    | ✅    |     |
-| Type Annotations	       | ❌	   | ❌	   | ❌	   | ⚠️    | ✅    | TOON types are advisory and not enforced |
-| Indentation-Independent	| ✅	   | ❌	   | ✅	   | ✅    | ✅    |     |
+| Type Annotations	       | ❌	   | ❌	   | ❌	   | ⚠️    | ✅    | TOON: Implicit/Schema-aware |
+| Indentation-Independent	| ✅	   | ❌	   | ✅	   | ❌    | ✅    |     |
 | Deterministic Parsing	  | ✅	   | ❌	   | ✅	   | ✅    | ✅    |     |
 | Human readable          | C | A | A | A | S | Arf!: Fully human-centric |
 | Human editable          | D | B | A | B | S | Arf!: Minimal syntax friction |
