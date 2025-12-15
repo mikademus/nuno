@@ -1,5 +1,7 @@
 # Querying data in an Arf! document
 
+```include "arf_parser.hpp"```
+
 ## Parsing an Arf! document
 
 ```arf::parse``` operates on string data and returns the document tree:
@@ -50,6 +52,33 @@ Accessor functions all take the document and a path as arguments and returns a s
 * ```arf::get_float``` -> ```float```
 
 If the value at the path is of the requested type it is returned as such, otherwise a conversion is attempted. Failures result in ```std::nullopt```.
+
+## Reflection
+```
+std::optional<value_ref> get(const document& doc, const std::string& path);
+```
+returns a ```value_ref``` that allows the client to reflect over the content of the document (names, types, structure). The ```value_ref``` object provides the following operations:
+
+```
+bool is_scalar()
+bool is_array()         
+bool is_string() 
+bool is_int() 
+bool is_float() 
+bool is_bool()          
+bool is_string_array() 
+bool is_int_array() 
+bool is_float_array()
+
+std::optional<std::string> as_string()
+std::optional<int64_t> as_int()
+std::optional<double> as_float()
+std::optional<bool> as_bool()
+template<typename T> std::optional<std::span<const T>> as_array()
+const value & raw() const
+```        
+
+```value_ref``` is intended for reflective and tooling use. Application code should prefer typed accessors (```get_int```, ```get_string```, etc.) whenever possible.
 
 ## Querying tables
 
