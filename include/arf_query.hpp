@@ -77,32 +77,32 @@ namespace arf
     {
     public:
         // Iterator for recursive row traversal
-        class recursive_iterator 
+        class recursive_iterator
         {
         public:
             using iterator_category = std::forward_iterator_tag;
             using value_type = row_view;
-            using difference_type = std::ptrdiff_t;
-            using pointer = const row_view*;
-            using reference = const row_view&;
-            
+
             recursive_iterator(const table_view* table, bool at_end = false);
-            
+
             row_view operator*() const;
             recursive_iterator& operator++();
-            recursive_iterator operator++(int);
-            
             bool operator==(const recursive_iterator& other) const;
-            bool operator!=(const recursive_iterator& other) const { return !(*this == other); }
-            
+
         private:
-            void advance_to_next();
-            
+            void advance();
+
             const table_view* table_;
-            const category* current_category_;
-            size_t row_index_;
-            std::vector<const category*> category_stack_;
             bool at_end_;
+
+            struct frame
+            {
+                const category* cat;
+                size_t row_index;
+                std::map<std::string, std::unique_ptr<category>>::const_iterator child_it;
+            };
+
+            std::vector<frame> stack_;
         };
         
         // Range wrapper for rows_recursive()
@@ -364,93 +364,87 @@ namespace arf
     }
     
     // Recursive iterator implementation
-    inline table_view::recursive_iterator::recursive_iterator(const table_view* table, bool at_end)
-        : table_(table), current_category_(table->cat_), row_index_(0), at_end_(at_end)
+    inline table_view::recursive_iterator::recursive_iterator(
+        const table_view* table,
+        bool at_end
+    )
+        : table_(table), at_end_(at_end)
     {
-        if (!at_end_) 
-        {
-            category_stack_.push_back(current_category_);
-            if (current_category_->table_rows.empty())
-                advance_to_next();
-        }
+        if (at_end_) return;
+
+        stack_.push_back({
+            table_->cat_,
+            0,
+            table_->cat_->subcategories.begin()
+        });
+
+        if (stack_.back().cat->table_rows.empty())
+            advance();
     }
     
-    inline row_view table_view::recursive_iterator::operator*() const 
+    inline row_view table_view::recursive_iterator::operator*() const
     {
-        return row_view(&current_category_->table_rows[row_index_], table_, current_category_);
+        const auto& f = stack_.back();
+        return row_view(
+            &f.cat->table_rows[f.row_index],
+            table_,
+            f.cat
+        );
     }
     
-    inline table_view::recursive_iterator& table_view::recursive_iterator::operator++() 
+    inline table_view::recursive_iterator&
+    table_view::recursive_iterator::operator++()
     {
-        advance_to_next();
+        advance();
         return *this;
     }
     
-    inline table_view::recursive_iterator table_view::recursive_iterator::operator++(int) 
-    {
-        recursive_iterator tmp = *this;
-        advance_to_next();
-        return tmp;
-    }
-    
-    inline bool table_view::recursive_iterator::operator==(const recursive_iterator& other) const 
+    inline bool table_view::recursive_iterator::operator==(
+        const recursive_iterator& other
+    ) const
     {
         if (at_end_ && other.at_end_) return true;
         if (at_end_ != other.at_end_) return false;
-        return current_category_ == other.current_category_ && row_index_ == other.row_index_;
+
+        // Both valid iterators: compare *position*, not history
+        const auto& a = stack_.back();
+        const auto& b = other.stack_.back();
+
+        return a.cat == b.cat
+            && a.row_index == b.row_index;
     }
-    
-    inline void table_view::recursive_iterator::advance_to_next() 
+
+    inline void table_view::recursive_iterator::advance()
     {
-        if (at_end_) return;
-        
-        // Try next row in current category
-        ++row_index_;
-        if (row_index_ < current_category_->table_rows.size())
-            return;
-        
-        // Process subcategories of current category
-        for (const auto& [name, subcat] : current_category_->subcategories) 
+        while (!stack_.empty())
         {
-            if (!subcat->table_rows.empty()) 
-            {
-                current_category_ = subcat.get();
-                row_index_ = 0;
-                category_stack_.push_back(current_category_);
+            auto& f = stack_.back();
+
+            // 1. Advance within current category rows
+            if (++f.row_index < f.cat->table_rows.size())
                 return;
-            }
-        }
-        
-        // Move up the stack
-        while (!category_stack_.empty()) 
-        {
-            category_stack_.pop_back();
-            if (category_stack_.empty()) 
+
+            // 2. Descend into next subcategory with rows
+            while (f.child_it != f.cat->subcategories.end())
             {
-                at_end_ = true;
-                return;
-            }
-            
-            // Find next sibling
-            const category* parent = category_stack_.back();
-            bool found_current = false;
-            
-            for (const auto& [name, subcat] : parent->subcategories) 
-            {
-                if (found_current && !subcat->table_rows.empty()) 
+                const category* child = f.child_it->second.get();
+                ++f.child_it;
+
+                if (!child->table_rows.empty())
                 {
-                    current_category_ = subcat.get();
-                    row_index_ = 0;
-                    category_stack_.push_back(current_category_);
+                    stack_.push_back({
+                        child,
+                        0,
+                        child->subcategories.begin()
+                    });
                     return;
                 }
-                if (subcat.get() == current_category_)
-                    found_current = true;
             }
-            
-            current_category_ = parent;
+
+            // 3. Exhausted this category → pop and continue upward
+            stack_.pop_back();
         }
-        
+
         at_end_ = true;
     }
     
