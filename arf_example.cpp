@@ -69,7 +69,7 @@ monsters:
       5       skeleton         314
       6       zombie           999
   /undead
-
+  
       7       kobold           3
       8       orc              10
 /monsters
@@ -224,7 +224,7 @@ void test_key_value_queries()
 
 void test_array_values()
 {
-    print_separator("TEST 4: Array Values");
+    print_separator("TEST 4: Array Values (Table-based)");
     
     auto result = arf::parse(example_config);
     if (!result.has_value())
@@ -255,6 +255,164 @@ void test_array_values()
             }
             std::cout << "\n";
         }
+    }
+}
+
+void test_array_helper_api()
+{
+    print_separator("TEST 4b: New Array Access API");
+    
+    // First, create a test document with array values
+    const char* array_config = R"(
+player:
+  name = Hero
+  tags:str[] = warrior|knight|champion
+  scores:int[] = 100|250|500
+  multipliers:float[] = 1.5|2.0|2.5
+/player
+)";
+    
+    auto result = arf::parse(array_config);
+    if (!result.has_value())
+    {
+        std::cout << "✗ Parse failed\n";
+        return;
+    }
+    
+    arf::document& doc = *result.doc;
+    
+    // Test new get_array helper
+    auto tags = arf::get_array<std::string>(doc, "player.tags");
+    if (tags)
+    {
+        std::cout << "✓ String array (get_array): ";
+        for (size_t i = 0; i < tags->size(); ++i)
+        {
+            std::cout << (*tags)[i];
+            if (i < tags->size() - 1) std::cout << ", ";
+        }
+        std::cout << "\n";
+    }
+    else
+    {
+        std::cout << "✗ Failed to get string array\n";
+    }
+    
+    auto scores = arf::get_array<int64_t>(doc, "player.scores");
+    if (scores)
+    {
+        std::cout << "✓ Int array (get_array): ";
+        for (size_t i = 0; i < scores->size(); ++i)
+        {
+            std::cout << (*scores)[i];
+            if (i < scores->size() - 1) std::cout << ", ";
+        }
+        std::cout << "\n";
+    }
+    
+    auto multipliers = arf::get_array<double>(doc, "player.multipliers");
+    if (multipliers)
+    {
+        std::cout << "✓ Float array (get_array): ";
+        for (size_t i = 0; i < multipliers->size(); ++i)
+        {
+            std::cout << (*multipliers)[i];
+            if (i < multipliers->size() - 1) std::cout << ", ";
+        }
+        std::cout << "\n";
+    }
+}
+
+void test_reflection_api()
+{
+    print_separator("TEST 4c: Reflection API (value_ref)");
+    
+    const char* test_config = R"(
+data:
+  string_val = hello world
+  int_val:int = 42
+  float_val:float = 3.14
+  bool_val:bool = true
+  array_val:str[] = alpha|beta|gamma
+/data
+)";
+    
+    auto result = arf::parse(test_config);
+    if (!result.has_value())
+    {
+        std::cout << "✗ Parse failed\n";
+        return;
+    }
+    
+    arf::document& doc = *result.doc;
+    
+    // Test string value
+    auto str_ref = arf::get(doc, "data.string_val");
+    if (str_ref)
+    {
+        std::cout << "✓ String value:\n";
+        std::cout << "    is_scalar: " << (str_ref->is_scalar() ? "yes" : "no") << "\n";
+        std::cout << "    is_string: " << (str_ref->is_string() ? "yes" : "no") << "\n";
+        std::cout << "    value: " << str_ref->as_string() << "\n\n";
+    }
+    
+    // Test int value
+    auto int_ref = arf::get(doc, "data.int_val");
+    if (int_ref)
+    {
+        std::cout << "✓ Int value:\n";
+        std::cout << "    is_scalar: " << (int_ref->is_scalar() ? "yes" : "no") << "\n";
+        std::cout << "    is_int: " << (int_ref->is_int() ? "yes" : "no") << "\n";
+        std::cout << "    value: " << int_ref->as_int() << "\n\n";
+    }
+    
+    // Test float value
+    auto float_ref = arf::get(doc, "data.float_val");
+    if (float_ref)
+    {
+        std::cout << "✓ Float value:\n";
+        std::cout << "    is_scalar: " << (float_ref->is_scalar() ? "yes" : "no") << "\n";
+        std::cout << "    is_float: " << (float_ref->is_float() ? "yes" : "no") << "\n";
+        std::cout << "    value: " << float_ref->as_float() << "\n\n";
+    }
+    
+    // Test bool value
+    auto bool_ref = arf::get(doc, "data.bool_val");
+    if (bool_ref)
+    {
+        std::cout << "✓ Bool value:\n";
+        std::cout << "    is_scalar: " << (bool_ref->is_scalar() ? "yes" : "no") << "\n";
+        std::cout << "    is_bool: " << (bool_ref->is_bool() ? "yes" : "no") << "\n";
+        std::cout << "    value: " << (bool_ref->as_bool() ? "true" : "false") << "\n\n";
+    }
+    
+    // Test array value
+    auto array_ref = arf::get(doc, "data.array_val");
+    if (array_ref)
+    {
+        std::cout << "✓ Array value:\n";
+        std::cout << "    is_scalar: " << (array_ref->is_scalar() ? "yes" : "no") << "\n";
+        std::cout << "    is_array: " << (array_ref->is_array() ? "yes" : "no") << "\n";
+        std::cout << "    is_string_array: " << (array_ref->is_string_array() ? "yes" : "no") << "\n";
+        
+        auto arr = array_ref->as_array<std::string>();
+        std::cout << "    values: ";
+        for (size_t i = 0; i < arr.size(); ++i)
+        {
+            std::cout << arr[i];
+            if (i < arr.size() - 1) std::cout << ", ";
+        }
+        std::cout << "\n";
+    }
+    
+    // Test error handling
+    std::cout << "\n✓ Error handling:\n";
+    try {
+        if (str_ref)
+            str_ref->as_int(); // Should throw
+        std::cout << "    ✗ Should have thrown exception\n";
+    } catch (const std::runtime_error& e) {
+        std::cout << "    ✓ Caught expected exception: " << e.what() << "\n";
     }
 }
 
@@ -444,6 +602,8 @@ Version 0.2.0
         test_table_access();
         test_key_value_queries();
         test_array_values();
+        test_array_helper_api();
+        test_reflection_api();
         test_hierarchical_tables();
         test_serialization();
         test_edge_cases();
