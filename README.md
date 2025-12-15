@@ -17,6 +17,18 @@ The goals are simple:
 
 ## Overview
 
+| Feature	                | JSON	 | YAML	 | TOML	 | TOOL  | Arf!  | Notes |
+| :---                    | ---   | ---   | ---   | ---   | ---   | --- |
+| Comments	               | ❌	   | ✅	   | ✅	   | ⚠️    | ✅    | TOOL: By convention, not by specification  |
+| Key/values	             | ✅	   | ✅	   | ✅	   | ❌    | ✅    |     |
+| Native Tables	          | ❌	   | ❌	   | ❌	   | ✅    | ✅    |     |
+| No-Quote Strings	       | ❌	   | ✅	   | ❌	   | ✅    | ✅    |     |
+| Type Annotations	       | ❌	   | ❌	   | ❌	   | ⚠️    | ✅    | TOOL types are advisory and not enforced |
+| Indentation-Independent	| ✅	   | ❌	   | ✅	   | ✅    | ✅    |     |
+| Deterministic Parsing	  | ✅	   | ❌	   | ✅	   | ✅    | ✅    |     |
+| Human readable          | C | A | A | A | S | Arf!: Fully human-centric |
+| Human editable          | D | B | A | B | S | Arf!: Fully human-centric |
+
 Arf! provides:
 
 * Hierarchical categories using a minimal marker syntax rather than indentation
