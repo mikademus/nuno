@@ -44,6 +44,23 @@ Arf! provides:
 
 Arf! aims to be the practical everyday format for configs, content files, world definitions, and structured datasets.
 
+## Philosophy: The Human-First Protocol, Built for Speed
+
+Most modern data formats are designed solely for transmission (JSON) or system-level automation (YAML). They prioritize rigid schemas or opaque parsing rules. Arf! is built on the belief that for many tasks—configuration, world-building, and creative data entry—clarity for the human writer can co-exist with trivial parsing for the machine.
+
+1. **Readability is Not a "Feature"; It’s the Goal**<br />
+In Arf!, you should be able to scan a file and understand its hierarchy through visual landmarks (colons and slashes) rather than counting invisible whitespace or matching nested braces. If you can’t read it comfortably, it’s a chore.
+2. **The "Copy-Paste" Safety Principle**<br />
+One of the greatest frustrations with indentation-based formats (like YAML or TOON) is that moving a block of text can silently change its meaning or break the parser. Arf! uses explicit scoping that preserves structural integrity no matter where you paste the data.
+3. **Determinism Over "Magic"**<br />
+Arf! avoids "magic" parsing. In YAML, the string NO might be converted to a boolean false automatically. In Arf!, a string is a string. We believe the computer should never have to guess what the human meant. This deterministic structure is precisely what allows for fast, simple machine parsing.
+4. **Tables are First-Class Citizens**<br />
+Data isn't just trees; it’s often rows. Forcing tabular data into nested Key/Value pairs (JSON) or repetitive arrays (TOML) is an ergonomic failure. Arf! treats the Table as a primary construct, allowing humans to maintain the "spreadsheet view" they naturally prefer for lists of entities.
+5. **Graceful Degradation**<br />
+Arf! is designed to be "hand-rolled." You shouldn't need a specialized IDE plugin to write a config file. By allowing whitespace freedom outside of tables and offering simple shorthand closures (/), Arf! scales easily.
+
+While other formats create complex problems that require complex parsers, Arf! provides elegant simplicity for both the human author and the machine reader.
+
 ## Quick Example
 
 ```
