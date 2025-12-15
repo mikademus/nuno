@@ -315,13 +315,13 @@ namespace arf
                 }
                 
                 // If we see a key-value pair, we're no longer in table mode
-                // This handles the case where a subcategory has key-value pairs
-                // after inheriting a table structure
+                // This handles the case where a subcategory declares key-value pairs
+                // after participating in the table
                 if (in_table_mode_)
                 {
                     in_table_mode_ = false;
                     current_table_.clear(); // Clear the parser's table state
-                    // Clear the inherited table structure from current category
+                    // Clear the table structure from current category
                     if (!category_stack_.empty())
                         category_stack_.back()->table_columns.clear();
                 }
