@@ -96,11 +96,11 @@ If conversion fails, `std::nullopt` is returned.
 
 Vector accessors returns `std::optional<std::span<const T>>`:
 
-| Vector accessor           | span value type               |
-| ------------------------- | ----------------------------- |
-| `arf::get_string_array`   | std::span<const std::string>  |
-| `arf::get_int_array`      | std::span<const int64_t>      |
-| `arf::get_float_array`    | std::span<const double>       |
+| Vector accessor           | span value type                |
+| ------------------------- | ------------------------------ |
+| `arf::get_string_array`   | `std::span<const std::string>` |
+| `arf::get_int_array`      | `std::span<const int64_t>`     |
+| `arf::get_float_array`    | `std::span<const double>`      |
 
 ---
 
