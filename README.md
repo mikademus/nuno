@@ -102,6 +102,11 @@ Arf! attempts to unify the strengths of each:
 * TOON’s table ergonomics
 …while discarding their pain points.
 
+## Note on 0.2.0
+
+> [!WARNING]
+> Arf! is divided into three areas of resposibility: parsing, querying and serialisation. Serialisation is intended to be document-ordered and retain the order and structure of a parsed document. Note that **in this version** the serialiser _normalises data to canonical order_. This will be amended.
+
 # Syntax Overview
 ## Basic constructs
 ### Whitespace
