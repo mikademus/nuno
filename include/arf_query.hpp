@@ -638,9 +638,6 @@ namespace arf
         const category* cat = detail::resolve_category(doc, parts, detail::path_resolution::category);
         if (!cat) return std::nullopt;
         
-        // Only return table_view if category has table columns defined
-        if (cat->table_columns.empty()) return std::nullopt;
-        
         return table_view(cat);
     }
     

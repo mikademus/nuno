@@ -138,9 +138,9 @@ void test_parsing()
     }
 }
 
-void test_table_access()
+void test_table_view_api()
 {
-    print_separator("TEST 2: Table Data Access");
+    print_separator("TEST 2: Table View API");
     
     auto result = arf::parse(example_config);
     if (!result.has_value())
@@ -151,40 +151,32 @@ void test_table_access()
     
     arf::document& doc = *result.doc;
     
-    if (doc.categories.count("server"))
+    // Get table view
+    auto server_table = arf::get_table(doc, "server");
+    if (!server_table)
     {
-        auto& server = doc.categories["server"];
-        std::cout << "Server Regions:\n";
-        std::cout << std::string(50, '-') << "\n";
+        std::cout << "✗ Failed to get server table\n";
+        return;
+    }
+    
+    std::cout << "Server Table (using table_view):\n";
+    std::cout << "  Columns: " << server_table->columns().size() << "\n";
+    std::cout << "  Rows: " << server_table->rows().size() << "\n\n";
+    
+    // Access rows with named columns
+    std::cout << "Server Regions (named column access):\n";
+    for (size_t i = 0; i < server_table->rows().size(); ++i)
+    {
+        auto row = server_table->row(i);
+        auto region = row.get_string("region");
+        auto address = row.get_string("address");
+        auto port = row.get_int("port");
+        auto active = row.get_bool("active");
         
-        // Print table header
-        for (size_t i = 0; i < server->table_columns.size(); ++i)
-        {
-            std::cout << std::left << std::setw(25) << server->table_columns[i].name;
-        }
-        std::cout << "\n" << std::string(50, '-') << "\n";
-        
-        // Print rows
-        for (const auto& row : server->table_rows)
-        {
-            for (size_t i = 0; i < row.size(); ++i)
-            {
-                std::cout << std::left << std::setw(25);
-                std::visit([](const auto& val) 
-                {
-                    using T = std::decay_t<decltype(val)>;
-                    if constexpr (std::is_same_v<T, std::string>)
-                        std::cout << val;
-                    else if constexpr (std::is_same_v<T, int64_t>)
-                        std::cout << val;
-                    else if constexpr (std::is_same_v<T, double>)
-                        std::cout << val;
-                    else if constexpr (std::is_same_v<T, bool>)
-                        std::cout << (val ? "true" : "false");
-                }, row[i]);
-            }
-            std::cout << "\n";
-        }
+        std::cout << "  " << (region ? *region : "N/A") 
+                  << " -> " << (address ? *address : "N/A")
+                  << ":" << (port ? std::to_string(*port) : "N/A")
+                  << " [" << (active && *active ? "active" : "inactive") << "]\n";
     }
 }
 
@@ -222,45 +214,9 @@ void test_key_value_queries()
     std::cout << "  Master Volume: " << (master_vol ? std::to_string(*master_vol) : "N/A") << "\n";
 }
 
-void test_array_values()
+void test_new_array_api()
 {
-    print_separator("TEST 4: Array Values (Table-based)");
-    
-    auto result = arf::parse(example_config);
-    if (!result.has_value())
-    {
-        std::cout << "✗ Parse failed\n";
-        return;
-    }
-    
-    arf::document& doc = *result.doc;
-    
-    if (doc.categories.count("characters"))
-    {
-        auto& chars = doc.categories["characters"];
-        
-        std::cout << "Character Starting Skills:\n\n";
-        
-        for (const auto& row : chars->table_rows)
-        {
-            std::string id = std::get<std::string>(row[0]);
-            std::string char_class = std::get<std::string>(row[1]);
-            const auto& skills = std::get<std::vector<std::string>>(row[5]);
-            
-            std::cout << "  " << id << " (" << char_class << "): ";
-            for (size_t i = 0; i < skills.size(); ++i)
-            {
-                std::cout << skills[i];
-                if (i < skills.size() - 1) std::cout << ", ";
-            }
-            std::cout << "\n";
-        }
-    }
-}
-
-void test_array_helper_api()
-{
-    print_separator("TEST 4b: New Array Access API");
+    print_separator("TEST 4a: Array Access API");
     
     // First, create a test document with array values
     const char* array_config = R"(
@@ -325,7 +281,7 @@ player:
 
 void test_reflection_api()
 {
-    print_separator("TEST 4c: Reflection API (value_ref)");
+    print_separator("TEST 4b: Reflection API (value_ref)");
     
     const char* test_config = R"(
 data:
@@ -353,7 +309,7 @@ data:
         std::cout << "✓ String value:\n";
         std::cout << "    is_scalar: " << (str_ref->is_scalar() ? "yes" : "no") << "\n";
         std::cout << "    is_string: " << (str_ref->is_string() ? "yes" : "no") << "\n";
-        std::cout << "    value: " << *str_ref->as_string() << "\n\n";
+        std::cout << "    value: "     << *str_ref->as_string() << "\n\n";
     }
     
     // Test int value
@@ -362,8 +318,8 @@ data:
     {
         std::cout << "✓ Int value:\n";
         std::cout << "    is_scalar: " << (int_ref->is_scalar() ? "yes" : "no") << "\n";
-        std::cout << "    is_int: " << (int_ref->is_int() ? "yes" : "no") << "\n";
-        std::cout << "    value: " << *int_ref->as_int() << "\n\n";
+        std::cout << "    is_int: "    << (int_ref->is_int() ? "yes" : "no") << "\n";
+        std::cout << "    value: "     << *int_ref->as_int() << "\n\n";
     }
     
     // Test float value
@@ -372,8 +328,8 @@ data:
     {
         std::cout << "✓ Float value:\n";
         std::cout << "    is_scalar: " << (float_ref->is_scalar() ? "yes" : "no") << "\n";
-        std::cout << "    is_float: " << (float_ref->is_float() ? "yes" : "no") << "\n";
-        std::cout << "    value: " << *float_ref->as_float() << "\n\n";
+        std::cout << "    is_float: "  << (float_ref->is_float() ? "yes" : "no") << "\n";
+        std::cout << "    value: "     << *float_ref->as_float() << "\n\n";
     }
     
     // Test bool value
@@ -382,8 +338,8 @@ data:
     {
         std::cout << "✓ Bool value:\n";
         std::cout << "    is_scalar: " << (bool_ref->is_scalar() ? "yes" : "no") << "\n";
-        std::cout << "    is_bool: " << (bool_ref->is_bool() ? "yes" : "no") << "\n";
-        std::cout << "    value: " << (*bool_ref->as_bool() ? "true" : "false") << "\n\n";
+        std::cout << "    is_bool: "   << (bool_ref->is_bool() ? "yes" : "no") << "\n";
+        std::cout << "    value: "     << (*bool_ref->as_bool() ? "true" : "false") << "\n\n";
     }
     
     // Test array value
@@ -391,31 +347,34 @@ data:
     if (array_ref)
     {
         std::cout << "✓ Array value:\n";
-        std::cout << "    is_scalar: " << (array_ref->is_scalar() ? "yes" : "no") << "\n";
-        std::cout << "    is_array: " << (array_ref->is_array() ? "yes" : "no") << "\n";
+        std::cout << "    is_scalar: "       << (array_ref->is_scalar() ? "yes" : "no") << "\n";
+        std::cout << "    is_array: "        << (array_ref->is_array() ? "yes" : "no") << "\n";
         std::cout << "    is_string_array: " << (array_ref->is_string_array() ? "yes" : "no") << "\n";
         
-        auto arr = *array_ref->as_array<std::string>();
+        auto arr = array_ref->as_array<std::string>();
         std::cout << "    values: ";
-        for (size_t i = 0; i < arr.size(); ++i)
+        for (size_t i = 0; i < arr->size(); ++i)
         {
-            std::cout << arr[i];
-            if (i < arr.size() - 1) std::cout << ", ";
+            std::cout << (*arr)[i];
+            if (i < arr->size() - 1) std::cout << ", ";
         }
         std::cout << "\n";
     }
     
     // Test error handling
     std::cout << "\n✓ Error handling:\n";
-    if (str_ref && str_ref->as_int() == std::nullopt) // Should throw
-        std::cout << "    ✓ Correctly failed conversion to int\n";
-    else
-        std::cout << "    ✗ Should have failed conversion\n";
+    if (str_ref)
+    {
+        if (!str_ref->as_int().has_value())
+            std::cout << "    ✓ Correctly failed conversion\n";
+        else
+            std::cout << "    ✗ Should have refused conversion\n";
+    }
 }
 
-void test_hierarchical_tables()
+void test_array_in_table()
 {
-    print_separator("TEST 5: Hierarchical Table Continuation");
+    print_separator("TEST 4c: Array Access in Tables (span-based)");
     
     auto result = arf::parse(example_config);
     if (!result.has_value())
@@ -426,31 +385,80 @@ void test_hierarchical_tables()
     
     arf::document& doc = *result.doc;
     
-    if (doc.categories.count("monsters"))
+    auto chars = arf::get_table(doc, "characters");
+    if (!chars)
     {
-        auto& monsters = doc.categories["monsters"];
+        std::cout << "✗ Failed to get characters table\n";
+        return;
+    }
+    
+    std::cout << "Character Skills (using span-based arrays):\n\n";
+    
+    for (size_t i = 0; i < chars->rows().size(); ++i)
+    {
+        auto row = chars->row(i);
+        auto id = row.get_string("id");
+        auto char_class = row.get_string("class");
+        auto skills = row.get_string_array("start_skills");
         
-        std::cout << "Monster Distribution:\n\n";
+        std::cout << "  " << (id ? *id : "N/A")
+                  << " (" << (char_class ? *char_class : "N/A") << "): ";
         
-        std::cout << "Base Monsters:\n";
-        for (const auto& row : monsters->table_rows)
+        if (skills)
         {
-            std::cout << "  " << std::get<int64_t>(row[0]) << ". "
-                      << std::get<std::string>(row[1]) << " (count: "
-                      << std::get<int64_t>(row[2]) << ")\n";
-        }
-        
-        for (const auto& [subcat_name, subcat] : monsters->subcategories)
-        {
-            std::cout << "\n" << subcat_name << ":\n";
-            for (const auto& row : subcat->table_rows)
+            for (size_t j = 0; j < skills->size(); ++j)
             {
-                std::cout << "  " << std::get<int64_t>(row[0]) << ". "
-                          << std::get<std::string>(row[1]) << " (count: "
-                          << std::get<int64_t>(row[2]) << ")\n";
+                std::cout << (*skills)[j];
+                if (j < skills->size() - 1) std::cout << ", ";
             }
         }
+        std::cout << "\n";
     }
+    
+    std::cout << "\n✓ No array copying - using std::span views!\n";
+}
+
+void test_recursive_table_iteration()
+{
+    print_separator("TEST 5: Recursive Table Iteration");
+    
+    auto result = arf::parse(example_config);
+    if (!result.has_value())
+    {
+        std::cout << "✗ Parse failed\n";
+        return;
+    }
+    
+    arf::document& doc = *result.doc;
+    
+    auto monsters = arf::get_table(doc, "monsters");
+    if (!monsters)
+    {
+        std::cout << "✗ Failed to get monsters table\n";
+        return;
+    }
+    
+    std::cout << "All Monsters (recursive iteration):\n\n";
+    
+    // Use the new rows_recursive() API
+    for (auto row : monsters->rows_recursive())
+    {
+        auto id = row.get_int("id");
+        auto name = row.get_string("name");
+        auto count = row.get_int("count");
+        
+        // Show provenance
+        std::string source = row.is_base_row() ? "base" : row.source_name();
+        std::string path = arf::to_path(row, doc);
+        
+        std::cout << "  [" << source << "] "
+                  << (id ? std::to_string(*id) : "?") << ". "
+                  << (name ? *name : "N/A") << " (count: "
+                  << (count ? std::to_string(*count) : "?") << ")"
+                  << " @ " << path << "\n";
+    }
+    
+    std::cout << "\n✓ Iterated through all rows in document order\n";
 }
 
 void test_serialization()
@@ -583,24 +591,29 @@ types:
 int main()
 {
     std::cout << R"(
-    _        __ _  
-   /_\  _ _ / _| | 
-  / _ \| '_|  _|_| 
- /_/ \_\_| |_| (_) 
-                                       
+    ___         __ _ 
+   /   |  _____/ _| |
+  / /| | / __/ |_| |
+ / ___ ||  _|  _|_|
+/_/   |_|_| |_| (_) 
+                    
 A Readable Format - Example & Test Suite
 Version 0.2.0
 )" << std::endl;
     
     try
     {
+
         test_parsing();
-        test_table_access();
+        //test_table_access();
+        test_table_view_api();
         test_key_value_queries();
-        test_array_values();
-        test_array_helper_api();
+        //test_array_values();
+        test_new_array_api();
         test_reflection_api();
-        test_hierarchical_tables();
+        test_array_in_table();
+        test_recursive_table_iteration();
+        //test_hierarchical_tables();
         test_serialization();
         test_edge_cases();
         test_error_handling();
