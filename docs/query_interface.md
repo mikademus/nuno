@@ -1,144 +1,285 @@
-# Querying data in an Arf! document
+# Querying Data in an Arf! Document
 
-## Parsing an Arf! document
+This document describes the **public query API** for accessing parsed Arf! data.
+It covers scalar values, arrays, reflection, and structured table access.
 
-```include "arf_parser.hpp"```
+Arf! deliberately separates **path-based queries** (for scalar data) from **structure-based APIs** (for arrays and tables). This prevents ambiguity and keeps queries deterministic.
 
-```arf::parse``` operates on string data and returns the document tree:
+---
+
+## Parsing an Arf! Document
+
+```cpp
+#include "arf_parser.hpp"
 ```
+
+Parsing operates on string data and produces a document tree:
+
+```cpp
 std::string example_config = obtain_arf_data_from_somewhere();
 
-auto result = arf::parse(example_config);    
+auto result = arf::parse(example_config);
+
 if (result.has_value())
 {
-    // result->doc contains the parsed document
+    arf::document& doc = *result.doc;
 }
+
 if (result.has_errors())
 {
-    // result.errors contains the errors emitted when parsing
+    // result.errors contains parse diagnostics
 }
 ```
-## Note on data types
 
-Arf! uses the names "float" and "int" to annotate value types. Internally these are stored as ```double``` and ```int64_t```; the "float" and "int" names are convenience types.
+Parsing is non-throwing. All failures are reported explicitly.
 
-## Paths and structured queries
+---
 
-Basic data (key/value pairs) are accessed through string paths. 
-Arrays and tables are accessed through structured APIs and are not addressable via string paths.
+## Note on Data Types
 
-## Querying key\value data
+Arf! supports the following value types:
 
-```include "arf_query.hpp"```
+| Arf! name | Internal representation   |
+| --------- | ------------------------- |
+| `str`     | `std::string`             |
+| `int`     | `int64_t`                 |
+| `float`   | `double`                  |
+| `bool`    | `bool`                    |
+| `date`    | `std::string`             |
+| ---       | ---                       |
+| `str[]`   |                           |
+| `int[]`   |                           |
+| `float[]` |                           |
 
-Key/value data queries are **path-centric** and accessed by dot-separated path, where the last segment is the key (the name of the value). If the path resolves to a category, table, or anything non-scalar, the query returns std::nullopt without error.
+Array types are stored as `std::vector<T>` internally and exposed via **non-owning views**.
 
+The names `int` and `float` are convenience annotations; no implicit narrowing occurs.
+
+---
+
+## Paths and Structured Queries
+
+Dot-separated paths identify locations within the document hierarchy.
+All query APIs take a path to locate the target node.
+
+* Scalar accessors (`get_int`, `get_string`, etc.) only succeed if the path resolves to a scalar value.
+* The `get_array` and `get_table` structural accessors succeed on array and table nodes respectively.
+
+Attempting to access a non-scalar node with a scalar accessor or vice versa safely returns `std::nullopt`.
+
+---
+
+## Querying Key/Value Data
+
+```cpp
+#include "arf_query.hpp"
 ```
-// foo is declared in the root:
-foo = 13
 
-bar:
-// baz is located under the category bar:
-    baz = 42
-```
-* The path to foo is: ```foo```
-* The path to baz is: ```bar.baz```
+Key/value data is queried via **typed accessors**:
 
-Accessor functions all take the document and a path as arguments and returns a std::optional<T>:
+```cpp
+auto volume = arf::get_float(doc, "game_settings.audio.master_volume");
 ```
-  std::optional<float> volume = arf::get_float(doc, "game_settings.audio.master_volume");
-```
-* ```arf::get_string``` -> ```std::string```
-* ```arf::get_int``` -> ```int```
-* ```arf::get_bool``` -> ```bool```
-* ```arf::get_float``` -> ```float```
 
-If the value at the path is of the requested type it is returned as such, otherwise a conversion is attempted. Failures result in ```std::nullopt```.
+Available accessors:
 
-## Reflection
-```
-std::optional<value_ref> get(const document& doc, const std::string& path);
-```
-returns a ```value_ref``` that allows the client to reflect over the content of the document (names, types, structure). The ```value_ref``` object provides the following operations:
+* `arf::get_string`
+* `arf::get_int`
+* `arf::get_float`
+* `arf::get_bool`
+( `arf::get_date` not available in 0.2.0)
 
-```
-bool is_scalar()
-bool is_array()         
-bool is_string() 
-bool is_int() 
-bool is_float() 
-bool is_bool()          
-bool is_string_array() 
-bool is_int_array() 
-bool is_float_array()
+Each returns `std::optional<T>`.
 
-std::optional<std::string> as_string()
-std::optional<int64_t> as_int()
-std::optional<double> as_float()
-std::optional<bool> as_bool()
-template<typename T> std::optional<std::span<const T>> as_array()
-const value & raw() const
-```        
+If the value exists but has a different type, a **safe conversion** is attempted.
+If conversion fails, `std::nullopt` is returned.
 
-```value_ref``` is intended for reflective and tooling use. Application code should prefer typed accessors (```get_int```, ```get_string```, etc.) whenever possible.
+Vector accessors returns `std::optional<std::span<const T>>`:
 
-## Querying tables
+| Vector accessor           | span value type               |
+| ------------------------- | ----------------------------- |
+| `arf::get_string_array`   | std::span<const std::string>  |
+| `arf::get_int_array`      | std::span<const int64_t>      |
+| `arf::get_float_array`    | std::span<const double>       |
 
-Table queries are **structure-centric** and the table tree is navigated explicitly. Given the table
-```
-monsters:
-    # id:int  name:str         count:int
-      1       bat              13
-      2       rat              42      
-  :goblins
-      3       green goblin     123
-      4       red goblin       456
-  /goblins  
-  :undead
-      5       skeleton         314
-      6       zombie           999
-  /undead
-      7       kobold           3
-      8       orc              10
-/monsters
-```
-table columns are enumerated as
-```
-auto & monsters = doc.categories["monsters"];
+---
 
-for (auto const & [col_name, col_type] : monsters->table_columns)
-    std::cout << std::format("{}: {}\n", col_name, arf::detail::type_to_string(col_type));
-```
-and table rows are enumerated as
-```
-auto & monsters = doc.categories["monsters"];
+## Reflection with `value_ref`
 
-// Base rows
-for (auto & row : monsters->table_rows) { ... }
+For tooling, inspection, or generic logic, Arf! provides a reflective interface:
 
-// Subcategory rows
-for (auto & [name, subcat] : monsters->subcategories)
-    for (auto & subrow : subcat->table_rows) { ... }
+```cpp
+std::optional<value_ref> arf::get(const document& doc, const std::string& path);
 ```
-The values are obtained through ```std::get<T>(cell)```
-```
-auto id = std::get<int>(row[0]);
-auto name = std::get<std::string>(row[1]);
-auto count = std::get<int64_t>(row[2]);
-```
-Note that sub-rows (table rows under table subcategories) are not enumerated as part of the higher category and must be manually collected from the subcategory.
 
-## Querying arrays
+`value_ref` is a lightweight, non-owning view onto a value in the document.
 
-Arrays are stored as typed std::vector<T> values and must be extracted using ```std::get```. 
+### Type inspection
 
-From key/values:
-```
-auto v = get_value(doc, "player.tags");
-auto const & tags = std::get<std::vector<std::string>>(*v);
-```
-and from a table row,
-```
-auto const & skills = std::get<std::vector<std::string>>(row[5]);
+```cpp
+bool is_scalar() const
+bool is_array() const
 
+bool is_string() const
+bool is_int() const
+bool is_float() const
+bool is_bool() const
+
+bool is_string_array() const
+bool is_int_array() const
+bool is_float_array() const
 ```
+
+### Value access
+
+```cpp
+std::optional<std::string> as_string() const
+std::optional<int64_t>     as_int() const
+std::optional<double>      as_float() const
+std::optional<bool>        as_bool() const
+
+template<typename T>
+std::optional<std::span<const T>> as_array() const
+
+const value& raw() const
+```
+
+Arrays are returned as `std::span<const T>` to avoid copying and preserve document ownership.
+
+**Application code should prefer typed accessors** (`get_int`, `get_string`, …) whenever possible.
+
+---
+
+## Querying Arrays
+
+Arrays are located by dot-paths but must be accessed using array-specific APIs (reflection or typed helpers).
+
+### From key/value data
+
+```cpp
+auto tags = arf::get_array<std::string>(doc, "player.tags");
+
+if (tags)
+{
+    for (const auto& tag : *tags)
+        std::cout << tag << "\n";
+}
+```
+
+`get_array<T>` returns:
+
+```cpp
+std::optional<std::span<const T>>
+```
+
+The span remains valid as long as the document exists.
+
+### From reflection
+
+```cpp
+if (auto ref = arf::get(doc, "player.tags"))
+{
+    if (auto tags = ref->as_array<std::string>())
+    {
+        // use *tags
+    }
+}
+```
+
+---
+
+## Querying Tables
+
+Tables are located by dot-paths and accessed through the `table_view` API.
+
+### Obtaining a table
+
+```cpp
+auto table = arf::get_table(doc, "creatures.monsters");
+```
+
+Returns:
+
+```cpp
+std::optional<table_view>
+```
+
+`table_view` is a lightweight, non-owning handle.
+
+---
+
+### Table metadata
+
+```cpp
+table->columns();   // vector<column_info>
+table->rows();      // number of rows
+```
+
+Each column exposes a name and a declared type.
+
+---
+
+### Iterating rows
+
+```cpp
+for (size_t i = 0; i < table->rows().size(); ++i)
+{
+    auto row = table->row(i);
+}
+```
+
+Each row is represented by a `row_view`.
+
+---
+
+### Accessing row values
+
+Row access is **name-based** and type-safe:
+
+```cpp
+auto region  = row.get_string("region");
+auto port    = row.get_int("port");
+auto active  = row.get_bool("active");
+```
+
+Each accessor returns `std::optional<T>`.
+
+If the column does not exist, is out of range, or has the wrong type, the result is `std::nullopt`.
+
+---
+
+### Arrays in table rows
+
+Array-valued columns can be accessed as spans:
+
+```cpp
+auto skills = row.get_array<std::string>("skills");
+
+if (skills)
+{
+    for (const auto& s : *skills)
+        std::cout << s << "\n";
+}
+```
+
+No copying occurs.
+
+---
+
+### Subcategories in tables
+
+Table subcategories participate in the same table structure.
+
+The table view presents rows in **document order**, including rows originating from subcategories.
+
+Clients do not need to manually traverse subcategories.
+
+---
+
+## Design Notes
+
+* Arrays are exposed as spans, never copied by default
+* All query APIs are non-throwing
+* Document ownership is preserved at all times
+
+Arf!’s query API is designed to be predictable, explicit, and difficult to misuse by accident.
