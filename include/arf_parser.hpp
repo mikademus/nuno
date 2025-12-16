@@ -323,9 +323,6 @@ namespace arf
                 {
                     in_table_mode_ = false;
                     current_table_.clear(); // Clear the parser's table state
-                    // Clear the table structure from current category
-                    if (!category_stack_.empty())
-                        category_stack_.back()->table_columns.clear();
                 }
                 
                 // Parse and store typed value
