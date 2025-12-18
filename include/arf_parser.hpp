@@ -278,10 +278,7 @@ namespace arf
                 table_mode_depth_ = category_stack_.size();
                 
                 if (!category_stack_.empty())
-                {
                     category_stack_.back()->table_columns = current_table_;
-                    category_stack_.back()->source_order.push_back({ decl_kind::table, {} });
-                }
             }
             
             value_type parse_type(const std::string& type_str) 
@@ -378,7 +375,16 @@ namespace arf
                     }
                 }
                 
-                category_stack_.back()->table_rows.push_back(std::move(row));
+                category* cat = category_stack_.back();
+                const size_t row_index = cat->table_rows.size();
+
+                cat->table_rows.push_back(std::move(row));
+
+                cat->source_order.push_back({
+                    decl_kind::table_row,
+                    {},
+                    row_index
+                });             
             }
             
             std::vector<std::string> split_table_cells(std::string_view line) 

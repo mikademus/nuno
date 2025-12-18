@@ -85,9 +85,9 @@ namespace arf
                             serialize_key(out, cat, decl.name, depth, is_root);
                             break;
 
-                        case decl_kind::table:
-                            serialize_table(out, cat, depth + (is_root ? 0 : 1));
-                            break;
+//                        case decl_kind::table:
+//                            serialize_table(out, cat, depth + (is_root ? 0 : 1));
+//                            break;
 
                         case decl_kind::subcategory:
                             serialize_subcategory(out, cat, decl.name, depth, is_root);

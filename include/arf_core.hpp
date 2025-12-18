@@ -64,7 +64,7 @@ namespace arf
     enum class decl_kind
     {
         key,
-        table,
+        table_row,
         subcategory
     };
 
@@ -72,6 +72,7 @@ namespace arf
     {
         decl_kind kind;
         std::string name; // empty for table
+        size_t row_index {0};   // row index (used for table_row)
     };
 
     struct category 

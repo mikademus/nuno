@@ -214,7 +214,7 @@ void test_key_value_queries()
     std::cout << "  Master Volume: " << (master_vol ? std::to_string(*master_vol) : "N/A") << "\n";
 }
 
-void test_new_array_api()
+void test_array_queries()
 {
     print_separator("TEST 4a: Array Access API");
     
@@ -420,7 +420,7 @@ void test_array_in_table()
 
 void test_recursive_table_iteration()
 {
-    print_separator("TEST 5: Recursive Table Iteration");
+    print_separator("TEST 5a: Recursive Table Iteration");
     
     auto result = arf::parse(example_config);
     if (!result.has_value())
@@ -458,7 +458,116 @@ void test_recursive_table_iteration()
                   << " @ " << path << "\n";
     }
     
-    std::cout << "\n✓ Iterated through all rows in document order\n";
+    std::cout << "\n✓ Iterated through all rows in BSF order\n";
+}
+
+void test_document_order_iteration()
+{
+    print_separator("TEST 5b: Document Order vs Recursive Order");
+    
+    // Create a test config that shows the difference
+    const char* test_config = R"(
+items:
+    # id:int  name:str  value:int
+      1       sword     100
+      2       shield    50
+  :weapons
+      3       axe       75
+      4       bow       60
+  /weapons
+      5       potion    25
+  :armor
+      6       helmet    40
+      7       boots     30
+  /armor
+      8       ring      200
+/items
+)";
+    
+    auto result = arf::parse(test_config);
+    if (!result.has_value())
+    {
+        std::cout << "✗ Parse failed\n";
+        return;
+    }
+    
+    arf::document& doc = *result.doc;
+    auto items = arf::get_table(doc, "items");
+    if (!items)
+    {
+        std::cout << "✗ Failed to get items table\n";
+        return;
+    }
+    
+    std::cout << "Document Order (as authored):\n";
+    for (auto row : items->rows_document())
+    {
+        auto id = row.get_int("id");
+        auto name = row.get_string("name");
+        std::string source = row.is_base_row() ? "base" : row.source_name();
+        
+        std::cout << "  [" << source << "] "
+                  << (id ? std::to_string(*id) : "?") << ". "
+                  << (name ? *name : "N/A") << "\n";
+    }
+    
+    std::cout << "\nRecursive Order (logical structure):\n";
+    for (auto row : items->rows_recursive())
+    {
+        auto id = row.get_int("id");
+        auto name = row.get_string("name");
+        std::string source = row.is_base_row() ? "base" : row.source_name();
+        
+        std::cout << "  [" << source << "] "
+                  << (id ? std::to_string(*id) : "?") << ". "
+                  << (name ? *name : "N/A") << "\n";
+    }
+    
+    std::cout << "\n✓ Document order: 1,2,3,4,5,6,7,8 (interleaved)\n";
+    std::cout << "✓ Recursive order: 1,2,5,8,3,4,6,7 (base then children)\n";
+
+    
+    const char* test_config_2 = R"(
+things:
+  #  id   name
+    1  base
+  :a
+    2   a1
+  /a
+    3  base2
+/things
+)";
+
+    auto res2 = arf::parse(test_config_2);
+    if (!res2.has_value())
+    {
+        std::cout << "✗ Parse failed\n";
+        return;
+    }
+
+    {
+        auto items = arf::get_table(*res2.doc, "things");
+        if (!items)
+        {
+            std::cout << "✗ Failed to get items table\n";
+            return;
+        }
+        else {
+            std::cout << "Rows/cols = " << items->rows().size() << "/" << items->columns().size() << "\n";
+        }
+        std::cout << "\nDocument Order (as authored) for test table 2:\n";
+        for (auto row : items->rows_document())
+        {
+            auto id = row.get_int("id");
+            auto name = row.get_string("name");
+            std::string source = row.is_base_row() ? "base" : row.source_name();
+            
+            std::cout << "  [" << source << "] "
+                    << (id ? std::to_string(*id) : "?") << ". "
+                    << (name ? *name : "N/A") << "\n";
+
+        }
+    }
 }
 
 void test_serialization()
@@ -605,15 +714,13 @@ Version 0.2.0
     {
 
         test_parsing();
-        //test_table_access();
         test_table_view_api();
         test_key_value_queries();
-        //test_array_values();
-        test_new_array_api();
+        test_array_queries();
         test_reflection_api();
         test_array_in_table();
         test_recursive_table_iteration();
-        //test_hierarchical_tables();
+        test_document_order_iteration();
         test_serialization();
         test_edge_cases();
         test_error_handling();

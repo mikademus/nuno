@@ -7,6 +7,7 @@
 #include "arf_core.hpp"
 #include <iterator>
 #include <span>
+#include <cassert>
 
 namespace arf 
 {
@@ -73,6 +74,46 @@ namespace arf
     class table_view 
     {
     public:
+            // Iterator for document-order row traversal
+        class document_iterator
+        {
+        public:
+            using iterator_category = std::forward_iterator_tag;
+            using value_type = row_view;
+
+            document_iterator(const table_view* table, bool at_end = false);
+
+            row_view operator*() const;
+            document_iterator& operator++();
+            bool operator==(const document_iterator& other) const;
+
+        private:
+            void advance();
+
+            const table_view* table_;
+            bool at_end_;
+
+            struct frame
+            {
+                const category* cat;
+                size_t decl_index;   // Position in source_order
+                const decl_ref* current_row = nullptr;
+            };
+
+            std::vector<frame> stack_;
+        };
+
+        // Range wrapper for rows_document()
+        class document_range
+        {
+        public:
+            document_range(const table_view* table) : table_(table) {}
+            document_iterator begin() const { return table_->rows_document_begin(); }
+            document_iterator end() const { return table_->rows_document_end(); }
+        private:
+            const table_view* table_;
+        };
+
         // Iterator for recursive row traversal
         class recursive_iterator
         {
@@ -123,11 +164,16 @@ namespace arf
         const std::vector<table_row>& rows() const { return cat_->table_rows; }
         row_view row(size_t index) const;
         
-        // Recursive row iteration (includes subcategories)
+        // Recursive row iteration (includes subcategories, depth-first)
         recursive_iterator rows_recursive_begin() const { return recursive_iterator(this, false); }
         recursive_iterator rows_recursive_end() const { return recursive_iterator(this, true); }
         recursive_range rows_recursive() const { return recursive_range(this); }
         
+        // Document-order row iteration (preserves author's ordering)
+        document_iterator rows_document_begin() const { return document_iterator(this, false); }
+        document_iterator rows_document_end() const { return document_iterator(this, true); }
+        document_range rows_document() const { return document_range(this); }
+
         // Subcategory access
         const std::map<std::string, std::unique_ptr<category>>& subcategories() const 
         { 
@@ -342,6 +388,100 @@ namespace arf
     // TABLE VIEW IMPLEMENTATION
     //========================================================================
     
+    // Document iterator implementation
+    inline table_view::document_iterator::document_iterator(
+        const table_view* table,
+        bool at_end
+    )
+        : table_(table), at_end_(at_end)
+    {
+        if (!at_end_)
+        {
+            stack_.push_back({ table_->cat_, 0, nullptr });
+            advance();
+        }
+    }
+            
+    inline row_view table_view::document_iterator::operator*() const
+    {
+        const auto& f = stack_.back();
+        assert(f.current_row && f.current_row->kind == decl_kind::table_row);
+
+        return row_view(
+            &f.cat->table_rows[f.current_row->row_index],
+            table_,
+            f.cat
+        );    
+    }
+    
+    inline table_view::document_iterator&
+    table_view::document_iterator::operator++()
+    {
+        advance();
+        return *this;
+    }
+    
+    inline bool table_view::document_iterator::operator==(
+        const document_iterator& other
+    ) const
+    {
+        if (at_end_ && other.at_end_) return true;
+        if (at_end_ != other.at_end_) return false;
+        
+        const auto& a = stack_.back();
+        const auto& b = other.stack_.back();
+        
+        return a.cat == b.cat && a.decl_index == b.decl_index;
+    }
+    
+    inline void table_view::document_iterator::advance()
+    {
+        while (!stack_.empty())
+        {
+            frame& f = stack_.back();
+
+            while (f.decl_index < f.cat->source_order.size())
+            {
+                const auto& decl = f.cat->source_order[f.decl_index++];
+
+                switch (decl.kind)
+                {
+                    case decl_kind::table_row:
+                        f.current_row = &decl;
+                        return;
+
+                    case decl_kind::subcategory:
+                    {
+                        auto it = f.cat->subcategories.find(decl.name);
+                        if (it != f.cat->subcategories.end())
+                        {
+                            stack_.push_back({ it->second.get(), 0 });
+                            // Continue from top of outer while - will reacquire 'f'
+                            goto next_frame;
+                        }
+                        break;
+                    }
+
+                    case decl_kind::key:
+                        break;
+                }
+            }
+
+            stack_.pop_back();
+            
+            if (stack_.empty())
+            {
+                at_end_ = true;
+                return;
+            }
+
+            stack_.back().current_row = nullptr;
+            
+        next_frame:;  // Label for goto
+        }
+    }
+
+
     inline std::optional<size_t> table_view::column_index(const std::string& name) const 
     {
         std::string lower = detail::to_lower(name);
@@ -381,12 +521,15 @@ namespace arf
             table_->cat_->subcategories.begin()
         });
 
+        // Ensure first dereference is valid
         if (stack_.back().cat->table_rows.empty())
             advance();
     }
     
     inline row_view table_view::recursive_iterator::operator*() const
     {
+        assert(!at_end_ && !stack_.empty());
+
         const auto& f = stack_.back();
         return row_view(
             &f.cat->table_rows[f.row_index],
@@ -432,16 +575,8 @@ namespace arf
             {
                 const category* child = f.child_it->second.get();
                 ++f.child_it;
-
-                if (!child->table_rows.empty())
-                {
-                    stack_.push_back({
-                        child,
-                        0,
-                        child->subcategories.begin()
-                    });
-                    return;
-                }
+                stack_.push_back({child, 0, child->subcategories.begin()});
+                return;
             }
 
             // 3. Exhausted this category → pop and continue upward
@@ -475,20 +610,44 @@ namespace arf
     {
         if (auto p = get_ptr<int64_t>(col))
             return *p;
+        
+        if (auto p = get_ptr<std::string>(col))
+        {
+            try { return std::stoll(*p); } 
+            catch (...) { return std::nullopt; }
+        }
+        
         return std::nullopt;
-    }    
-    
+    }
+
     inline std::optional<double> row_view::get_float(const std::string& col) const 
     {
         if (auto p = get_ptr<double>(col))
             return *p;
+        
+        if (auto p = get_ptr<std::string>(col))
+        {
+            try { return std::stod(*p); } 
+            catch (...) { return std::nullopt; }
+        }
+        
         return std::nullopt;
     }
-    
+
     inline std::optional<bool> row_view::get_bool(const std::string& col) const 
     {
         if (auto p = get_ptr<bool>(col))
             return *p;
+        
+        if (auto p = get_ptr<std::string>(col))
+        {
+            std::string lower = detail::to_lower(*p);
+            if (lower == "true" || lower == "yes" || lower == "1")
+                return true;
+            if (lower == "false" || lower == "no" || lower == "0")
+                return false;
+        }
+        
         return std::nullopt;
     }
     
