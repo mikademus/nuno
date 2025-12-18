@@ -19,6 +19,10 @@ The goals are simple:
 
 ## Overview
 
+Also see:
+* Details on [the query interface](docs/query_interface.md)
+* Details on [the serialiser](docs/serializer_interface.md)
+
 ### Comparison at a Glance
 | Feature	                | JSON	 | YAML	 | TOML	 | TOON  | Arf!  | Notes |
 | :---                    | ---   | ---   | ---   | ---   | ---   | --- |
