@@ -12,7 +12,7 @@ namespace arf
     // SERIALIZER API
     //========================================================================
     
-    std::string serialize(const document& doc, bool pretty_print = false);
+    std::string serialize(const document& doc, bool pretty_print = false, bool document_order = true);
     
     //========================================================================
     // SERIALIZER IMPLEMENTATION
@@ -23,9 +23,10 @@ namespace arf
         class serializer_impl 
         {
         public:
-            std::string serialize(const document& doc, bool pretty_print) 
+            std::string serialize(const document& doc, bool pretty_print, bool document_order = true) 
             {
                 pretty_print_ = pretty_print;
+                document_order_ = document_order;
                 std::ostringstream out;
                 
                 bool first_category = true;
@@ -56,6 +57,7 @@ namespace arf
             
         private:
             bool pretty_print_ = false;
+            bool document_order_ = true;
             
             void serialize_category(std::ostringstream& out, const category& cat, int depth) 
             {
@@ -77,6 +79,29 @@ namespace arf
                 bool is_root
             )
             {
+                if (document_order_)
+                {
+                    serialize_document_order(out, cat, depth, is_root);
+                }
+                else
+                {
+                    serialize_canonical_order(out, cat, depth, is_root);
+                }
+            }
+
+            void serialize_document_order(
+                std::ostringstream& out,
+                const category& cat,
+                int depth,
+                bool is_root
+            )
+            {
+                bool table_header_emitted = false;
+                std::vector<size_t> col_widths;
+                
+                if (pretty_print_ && !cat.table_columns.empty())
+                    col_widths = compute_column_widths(cat);
+                
                 for (const auto& decl : cat.source_order)
                 {
                     switch (decl.kind)
@@ -85,15 +110,120 @@ namespace arf
                             serialize_key(out, cat, decl.name, depth, is_root);
                             break;
 
-//                        case decl_kind::table:
-//                            serialize_table(out, cat, depth + (is_root ? 0 : 1));
-//                            break;
+                        case decl_kind::table_row:
+                        {
+                            // Emit table header before first row
+                            if (!table_header_emitted)
+                            {
+                                serialize_table_header(out, cat, depth, is_root);
+                                table_header_emitted = true;
+                            }
+                            serialize_table_row(out, cat, decl.row_index, depth, is_root, col_widths);
+                            break;
+                        }
 
                         case decl_kind::subcategory:
                             serialize_subcategory(out, cat, decl.name, depth, is_root);
                             break;
                     }
                 }
+            }
+
+            void serialize_canonical_order(
+                std::ostringstream& out,
+                const category& cat,
+                int depth,
+                bool is_root
+            )
+            {
+                // First: all key-value pairs
+                for (const auto& [key, val] : cat.key_values)
+                {
+                    serialize_key(out, cat, key, depth, is_root);
+                }
+                
+                // Second: table (if present)
+                if (!cat.table_columns.empty() && !cat.table_rows.empty())
+                {
+                    serialize_table_header(out, cat, depth, is_root);
+                    
+                    std::vector<size_t> col_widths;
+                    if (pretty_print_)
+                        col_widths = compute_column_widths(cat);
+                    
+                    for (size_t i = 0; i < cat.table_rows.size(); ++i)
+                    {
+                        serialize_table_row(out, cat, i, depth, is_root, col_widths);
+                    }
+                }
+                
+                // Third: subcategories
+                for (const auto& [name, subcat] : cat.subcategories)
+                {
+                    serialize_subcategory(out, cat, name, depth, is_root);
+                }
+            }
+
+            void serialize_table_header(
+                std::ostringstream& out,
+                const category& cat,
+                int depth,
+                bool is_root
+            )
+            {
+                std::string indent(depth * 2, ' ');
+                std::string content_indent = is_root ? "" : "  ";
+                
+                out << indent << content_indent << "#";
+                for (size_t i = 0; i < cat.table_columns.size(); ++i)
+                {
+                    out << "  " << cat.table_columns[i].name;
+                    
+                    // Include type annotation if not default string type
+                    if (cat.table_columns[i].type != value_type::string)
+                    {
+                        out << ":" << type_to_string(cat.table_columns[i].type);
+                    }
+                }
+                out << "\n";
+            }
+
+            void serialize_table_row(
+                std::ostringstream& out,
+                const category& cat,
+                size_t row_index,
+                int depth,
+                bool is_root,
+                const std::vector<size_t>& col_widths
+            )
+            {
+                if (row_index >= cat.table_rows.size())
+                    return;
+                
+                const auto& row = cat.table_rows[row_index];
+                
+                std::string indent(depth * 2, ' ');
+                std::string content_indent = is_root ? "" : "  ";
+                
+                out << indent << content_indent;
+                for (size_t i = 0; i < row.size(); ++i)
+                {
+                    if (i > 0) out << "  ";
+                    
+                    std::ostringstream cell;
+                    serialize_value(cell, row[i]);
+                    std::string cell_str = cell.str();
+                    
+                    if (!col_widths.empty() && i < col_widths.size())
+                    {
+                        out << std::left << std::setw(col_widths[i]) << cell_str;
+                    }
+                    else
+                    {
+                        out << cell_str;
+                    }
+                }
+                out << "\n";
             }
 
             void serialize_key(
@@ -106,10 +236,11 @@ namespace arf
             {
                 auto it = cat.key_values.find(key);
                 if (it == cat.key_values.end())
-                    return; // defensive
+                    return;
 
                 std::string indent(depth * 2, ' ');
-                out << indent << (is_root ? "" : "  ") << key << " = ";
+                std::string content_indent = is_root ? "" : "  ";
+                out << indent << content_indent << key << " = ";
                 serialize_value(out, it->second);
                 out << "\n";
             }
@@ -129,68 +260,23 @@ namespace arf
                 const category& sub = *it->second;
 
                 std::string indent(depth * 2, ' ');
-                out << "\n" << indent << (is_root ? "" : "  ") << ":" << name << "\n";
+                std::string content_indent = is_root ? "" : "  ";
+                out << "\n" << indent << content_indent << ":" << name << "\n";
 
                 serialize_category_content(out, sub, depth + 1, false);
 
-                out << indent << (is_root ? "" : "  ") << "/" << name << "\n";
-            }
-
-            void serialize_table(std::ostringstream& out, const category& cat, int depth)
-            {
-                if (cat.table_columns.empty())
-                    return; // malformed AST, or future extension
-
-                std::string indent(depth * 2, ' ');
-                
-                std::vector<size_t> col_widths;
-                if (pretty_print_)
-                    col_widths = compute_column_widths(cat);
-                
-                // Table header
-                out << indent << "#";
-                for (size_t i = 0; i < cat.table_columns.size(); ++i)
-                {
-                    out << "  " << cat.table_columns[i].name << ":" << type_to_string(cat.table_columns[i].type);
-                }
-                out << "\n";
-                
-                // Table rows
-                serialize_table_rows(out, cat, depth, col_widths);
-            }
-            
-            void serialize_table_rows(std::ostringstream& out, const category& cat, int depth, 
-                                     const std::vector<size_t>& col_widths = {})
-            {
-                std::string indent(depth * 2, ' ');
-                
-                for (const auto& row : cat.table_rows)
-                {
-                    out << indent;
-                    for (size_t i = 0; i < row.size(); ++i)
-                    {
-                        if (i > 0) out << "  ";
-                        
-                        std::ostringstream cell;
-                        serialize_value(cell, row[i]);
-                        std::string cell_str = cell.str();
-                        
-                        if (!col_widths.empty() && i < col_widths.size())
-                        {
-                            out << std::left << std::setw(col_widths[i]) << cell_str;
-                        }
-                        else
-                        {
-                            out << cell_str;
-                        }
-                    }
-                    out << "\n";
-                }
+                out << indent << content_indent << "/" << name << "\n";
             }
             
             std::vector<size_t> compute_column_widths(const category& cat)
             {
                 std::vector<size_t> widths(cat.table_columns.size(), 0);
+                
+                // Include header widths
+                for (size_t i = 0; i < cat.table_columns.size(); ++i)
+                {
+                    widths[i] = cat.table_columns[i].name.size();
+                }
                 
                 for (const auto& row : cat.table_rows)
                 {
@@ -245,19 +331,19 @@ namespace arf
                 }, val);
             }
         };
-        
+
     } // namespace detail
     
     //========================================================================
     // PUBLIC SERIALIZER API IMPLEMENTATION
     //========================================================================
     
-    inline std::string serialize(const document& doc, bool pretty_print)
+    inline std::string serialize(const document& doc, bool pretty_print, bool document_order)
     {
         detail::serializer_impl serializer;
-        return serializer.serialize(doc, pretty_print);
+        return serializer.serialize(doc, pretty_print, document_order);
     }
-    
+        
 } // namespace arf
 
 #endif // ARF_SERIALIZER_HPP
