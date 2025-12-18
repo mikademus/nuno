@@ -208,18 +208,9 @@ std::optional<table_view>
 
 ---
 
-### Table metadata
-
-```cpp
-table->columns();   // vector<column_info>
-table->rows();      // number of rows
-```
-
-Each column exposes a name and a declared type.
-
----
-
 ### Iterating rows
+
+Tables can be divided into sections by specifying subcategories. The basic `rows()` method provides access to all rows in the current category only:
 
 ```cpp
 for (size_t i = 0; i < table->rows().size(); ++i)
@@ -229,6 +220,18 @@ for (size_t i = 0; i < table->rows().size(); ++i)
 ```
 
 Each row is represented by a `row_view`.
+
+---
+
+Table rows can be exhaustingly iterated over either in document order as rows occur in the document as authored, or in canonical order in a breadth-first search recursion:
+
+```cpp
+for (auto it : table->rows_document())
+    row_view row = *it;    
+
+for (auto it : table->rows_recursive())
+    row_view row = *it;    
+```
 
 ---
 
