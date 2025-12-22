@@ -1,168 +1,52 @@
 // arf_query.hpp - A Readable Format (Arf!) - Query Interface
 // Version 0.2.0
+// Copyright 2025 Mikael Ueno A
+// Licenced as-is under the MIT licence.
 
 #ifndef ARF_QUERY_HPP
 #define ARF_QUERY_HPP
 
-#include "arf_core.hpp"
-
+#include "arf_reflect.hpp"
 #include <iterator>
-#include <span>
-#include <cassert>
 
 namespace arf 
-{
-    //========================================================================
-    // REFLECTION BASE
-    //========================================================================
-    
-    class value_ref 
-    {
-    public:
-        value_ref(const typed_value& v) : tv_(&v) {}
+{    
+//========================================================================
+// Forward declarations
+//========================================================================
 
-    // --- provenance ---
-        value_type      type()          const { return tv_->type; }
-        bool            declared()      const { return tv_->type_source == type_ascription::declared; }
-        type_ascription type_source()   const { return tv_->type_source; }
-        value_locus     origin_site()   const { return tv_->origin_site; }
-
-    // --- raw access ---
-        const value& raw() const { return tv_->val; }
-
-        std::optional<std::string_view> source_str() const
-        {
-            if (!tv_->source_literal)
-                return std::nullopt;
-
-            return std::string_view(*tv_->source_literal);
-        }        
-        
-    // --- format ---        
-        bool is_scalar() const 
-        {
-            return std::holds_alternative<std::string>(tv_->val) ||
-                   std::holds_alternative<int64_t>(tv_->val) ||
-                   std::holds_alternative<double>(tv_->val) ||
-                   std::holds_alternative<bool>(tv_->val);
-        }
-        
-        bool is_array() const 
-        {
-            return std::holds_alternative<std::vector<std::string>>(tv_->val) ||
-                   std::holds_alternative<std::vector<int64_t>>(tv_->val) ||
-                   std::holds_alternative<std::vector<double>>(tv_->val);
-        }
-        
-        bool is_string() const { return std::holds_alternative<std::string>(tv_->val); }
-        bool is_int() const { return std::holds_alternative<int64_t>(tv_->val); }
-        bool is_float() const { return std::holds_alternative<double>(tv_->val); }
-        bool is_bool() const { return std::holds_alternative<bool>(tv_->val); }
-        
-        bool is_string_array() const { return std::holds_alternative<std::vector<std::string>>(tv_->val); }
-        bool is_int_array() const { return std::holds_alternative<std::vector<int64_t>>(tv_->val); }
-        bool is_float_array() const { return std::holds_alternative<std::vector<double>>(tv_->val); }
-        
-    // --- scalar access: allow conversions ---
-        std::optional<std::string> as_string() const
-        {
-            if (auto s = source_str())
-                return std::string(*s);
-
-            return to_string(tv_->val);
-        }
-        
-        std::optional<int64_t> as_int()   const { return to_int(tv_->val); }
-        std::optional<double>  as_float() const { return to_float(tv_->val); }
-        std::optional<bool>    as_bool()  const { return to_bool(tv_->val); }
-        
-    // --- array access: non-converting views ---
-        std::optional<std::span<const std::string>> string_array() const { return array_view<std::string>(); }
-        std::optional<std::span<const int64_t>>     int_array()    const { return array_view<int64_t>(); }
-        std::optional<std::span<const double>>      float_array()  const { return array_view<double>(); }
-
-
-    private:
-        const typed_value* tv_;
-
-        template<typename T>
-        std::optional<std::span<const T>> array_view() const
-        {
-            if (auto* arr = std::get_if<std::vector<T>>(&tv_->val))
-                return std::span<const T>(*arr);
-            return std::nullopt;
-        }
-
-        static std::optional<std::string> to_string(const value& v)
-        {
-            if (auto* str = std::get_if<std::string>(&v))
-                return *str;
-
-            if (auto* i = std::get_if<int64_t>(&v))
-                return std::to_string(*i);
-
-            if (auto* d = std::get_if<double>(&v))
-                return std::to_string(*d);
-
-            if (auto* b = std::get_if<bool>(&v))
-                return *b ? "true" : "false";
-
-            return std::nullopt;
-        }
-
-        static std::optional<int64_t> to_int(const value& v)
-        {
-            if (auto* i = std::get_if<int64_t>(&v))
-                return *i;
-
-            if (auto* d = std::get_if<double>(&v))
-                return static_cast<int64_t>(*d);
-
-            if (auto* s = std::get_if<std::string>(&v))
-            {
-                try { return std::stoll(*s); }
-                catch (...) {}
-            }
-            return std::nullopt;
-        }
-
-        static std::optional<double> to_float(const value& v)
-        {
-            if (auto* d = std::get_if<double>(&v))
-                return *d;
-
-            if (auto* i = std::get_if<int64_t>(&v))
-                return static_cast<double>(*i);
-
-            if (auto* s = std::get_if<std::string>(&v))
-            {
-                try { return std::stod(*s); }
-                catch (...) {}
-            }
-            return std::nullopt;
-        }
-
-        static std::optional<bool> to_bool(const value& v)
-        {
-            if (auto* b = std::get_if<bool>(&v))
-                return *b;
-
-            if (auto* s = std::get_if<std::string>(&v))
-            {
-                std::string lower = detail::to_lower(*s);
-                if (lower == "true" || lower == "yes" || lower == "1") return true;
-                if (lower == "false" || lower == "no" || lower == "0") return false;
-            }
-            return std::nullopt;
-        }        
-    };
-    
-    //========================================================================
-    // TABLE ROW VIEW
-    //========================================================================
-    
     class table_view;
+    class row_view;
+
+//========================================================================
+// QUERY API
+//========================================================================
     
+    // Basic value query (returns proxy for reflection)
+    std::optional<value_ref> get(const document& doc, const std::string& path);
+    
+    // Direct value access
+    std::optional<std::string> get_string(const document& doc, const std::string& path);
+    std::optional<int64_t> get_int(const document& doc, const std::string& path);
+    std::optional<double> get_float(const document& doc, const std::string& path);
+    std::optional<bool> get_bool(const document& doc, const std::string& path);
+
+    // Array access helpers
+    std::optional<std::span<const std::string>> get_string_array(const document& doc, const std::string& path);        
+    std::optional<std::span<const int64_t>> get_int_array(const document& doc, const std::string& path);        
+    std::optional<std::span<const double>> get_float_array(const document& doc, const std::string& path);
+    
+    // Table access
+    std::optional<table_view> get_table(const document& doc, const std::string& path);
+    
+    // Path utilities
+    std::string category_path(const category* cat, const document& doc);
+    std::string to_path(const row_view& row, const document& doc);
+    
+//========================================================================
+// TABLE ROW VIEW
+//========================================================================
+
     class row_view 
     {
     public:
@@ -180,19 +64,20 @@ namespace arf
         std::optional<value_ref> get(const std::string& name) const;
         
         // Convenience typed getters
-        std::optional<std::string> get_string(const std::string& col) const;
-        std::optional<int64_t> get_int(const std::string& col) const;
-        std::optional<double> get_float(const std::string& col) const;
-        std::optional<bool> get_bool(const std::string& col) const;
+        std::optional<std::string>  get_string(const std::string& col) const;
+        std::optional<int64_t>      get_int(const std::string& col) const;
+        std::optional<double>       get_float(const std::string& col) const;
+        std::optional<bool>         get_bool(const std::string& col) const;
         
         // Array getters
         std::optional<std::span<const std::string>> get_string_array(const std::string& col) const;
-        std::optional<std::span<const int64_t>> get_int_array(const std::string& col) const;
-        std::optional<std::span<const double>> get_float_array(const std::string& col) const;
+        std::optional<std::span<const int64_t>>     get_int_array(const std::string& col) const;
+        std::optional<std::span<const double>>      get_float_array(const std::string& col) const;
         
         // Provenance information
-        const category* source() const { return source_category_; }
-        std::string source_name() const { return source_category_->name; }
+        const category* source()      const { return source_category_; }
+        std::string     source_name() const { return source_category_->name; }
+
         bool is_base_row() const;
         
         // Raw access
@@ -208,14 +93,14 @@ namespace arf
         const category* source_category_;
     };
     
-    //========================================================================
-    // TABLE VIEW
-    //========================================================================
+//========================================================================
+// TABLE VIEW
+//========================================================================
     
     class table_view 
     {
     public:
-            // Iterator for document-order row traversal
+        // Iterator for document-order row traversal
         class document_iterator
         {
         public:
@@ -333,172 +218,10 @@ namespace arf
         friend class row_view;
     };
     
-    //========================================================================
-    // REFLECTION CONT.
-    //========================================================================
-
-    class column_ref
-    {
-    public:
-        column_ref(const column& col, size_t index)
-            : col_(&col), index_(index) {}
-
-        const std::string& name() const { return col_->name; }
-        size_t             index() const { return index_; }
-
-        value_type      type()        const { return col_->type; }
-        type_ascription type_source() const { return col_->type_source; }
-
-    private:
-        const column* col_;
-        size_t        index_;
-    };
-
-    class row_ref;
-    class table_ref;
-
-    class cell_ref
-    {
-    public:
-        cell_ref(const row_ref& row, const column_ref& col)
-            : row_(&row)
-            , col_(&col)
-        {
-        }
-
-        size_t row_index()    const; 
-        size_t column_index() const;
-
-        value_ref  value()  const;
-
-        const column_ref& column() const { return *col_; }
-        const row_ref&    row()    const { return *row_; }   
-             
-    private:
-        const row_ref* row_;
-        const column_ref* col_;
-    };
-
-    class subcategory_ref;
-
-    class row_ref
-    {
-    public:
-        row_ref(const table_ref& table, size_t row_index)
-            : table_(&table), row_index_(row_index) {}
-
-        // --- identity ---
-        size_t index() const { return row_index_; }
-        const table_ref& table() const { return *table_; }
-
-        // --- structure ---
-        subcategory_ref subcategory() const;
-
-        size_t cell_count() const;
-        auto cells() const;
-        cell_ref cell(const column_ref& col) const;
-
-        // --- compatibility layer ---
-        const typed_value* get_typed_ptr(const std::string& name) const;
-        const value*       get_ptr(const std::string& name) const;
-
-    private:
-        const table_ref* table_;
-        size_t           row_index_; // ALWAYS table-space index
-    };
-
-    class subcategory_ref
-    {
-    public:
-        subcategory_ref(const table_ref& table, size_t subcat_index);
-
-        const std::string& name() const;
-
-        // number of rows in this subcategory (all descendants included)
-        size_t row_count() const;
-
-        // global table row index
-        size_t rows_in_table(size_t i) const;
-
-        // index relative to parent subcategory
-        size_t rows_in_parent(size_t i) const;
-
-        // hierarchy
-        bool has_parent() const;
-        subcategory_ref parent() const;
-
-        size_t child_count() const;
-        subcategory_ref child(size_t i) const;
-
-        // iteration
-        auto rows() const;
-
-    private:
-        const table_ref* table_;
-        size_t           subcat_index_;
-    };  
-
-    class table_ref
-    {
-    public:
-        table_ref(const category& cat)
-            : category_(&cat) {}
-
-        const category& schema() const { return *category_; }
-                    
-        // columns
-        size_t      column_count() const;
-        column_ref  column(size_t i) const;
-        auto        columns() const;
-        //size_t      column_index(std::string_view name) const { return category_->column_index(name); }
-        
-        // rows (document order)
-        size_t      row_count() const { return category_->table_rows.size(); }
-        row_ref     row(size_t table_row_index) const { return row_ref(*this, table_row_index); }
-        auto        rows() const;
-
-        // subcategories
-        subcategory_ref root_subcategory() const;
-        size_t          subcategory_count() const;
-        subcategory_ref subcategory(size_t i) const;
-        auto            subcategories() const;
-
-        // resolves the active subcategory for a table row
-        // NOTE: parameter is ALWAYS a table row index
-        size_t resolve_subcategory_index(size_t table_row_index) const;
-
-    private:
-        const category* category_;
-    };
-
-    //========================================================================
-    // QUERY API
-    //========================================================================
     
-    // Basic value query (returns proxy for reflection)
-    std::optional<value_ref> get(const document& doc, const std::string& path);
-    
-    // Direct value access
-    std::optional<std::string> get_string(const document& doc, const std::string& path);
-    std::optional<int64_t> get_int(const document& doc, const std::string& path);
-    std::optional<double> get_float(const document& doc, const std::string& path);
-    std::optional<bool> get_bool(const document& doc, const std::string& path);
-
-    // Array access helpers
-    std::optional<std::span<const std::string>> get_string_array(const document& doc, const std::string& path);        
-    std::optional<std::span<const int64_t>> get_int_array(const document& doc, const std::string& path);        
-    std::optional<std::span<const double>> get_float_array(const document& doc, const std::string& path);
-    
-    // Table access
-    std::optional<table_view> get_table(const document& doc, const std::string& path);
-    
-    // Path utilities
-    std::string category_path(const category* cat, const document& doc);
-    std::string to_path(const row_view& row, const document& doc);
-    
-    //========================================================================
-    // QUERY IMPLEMENTATION
-    //========================================================================
+//========================================================================
+// QUERY IMPLEMENTATION
+//========================================================================
     
     namespace detail 
     {
@@ -588,82 +311,9 @@ namespace arf
         }
     } // namespace detail
 
-    //========================================================================
-    // REFLECTION API IMPLEMENTATION
-    //========================================================================
-
-    size_t cell_ref::row_index() const 
-    { 
-        return row_->index(); 
-    }
-
-    size_t cell_ref::column_index() const
-    { 
-        return col_->index(); 
-    }
-
-
-    inline auto row_ref::cells() const
-    {
-        struct cell_range
-        {
-            const row_ref* row;
-            struct iterator
-            {
-                const row_ref* row;
-                size_t col;
-
-                cell_ref operator*() const
-                {
-                    auto cr = row->table().column(col);
-                    return row->cell(cr);
-                }
-
-                iterator& operator++()
-                {
-                    ++col;
-                    return *this;
-                }
-
-                bool operator!=(const iterator& other) const
-                {
-                    return col != other.col;
-                }
-            };
-
-            iterator begin() const { return { row, 0 }; }
-            iterator end()   const { return { row, row->cell_count() }; }
-        };
-
-        return cell_range{ this };
-    }
-
-    // inline row_ref    cell_ref::row()    const { return row_ref(*category_, row_index()); }
-    // inline column_ref cell_ref::column() const { return column_ref(category_->table_columns[column_index_], column_index_); }
-
-    inline value_ref cell_ref::value() const
-    {
-        const typed_value& tv =
-            row_->table().schema().table_rows[row_->index()][col_->index()];
-            //category_->table_rows[row_index_][column_index_];
-        return value_ref(tv);
-    }
-
-    inline size_t row_ref::cell_count() const 
-    { 
-        return table_->column_count(); 
-    }
-
-    inline cell_ref row_ref::cell(const column_ref& col) const
-    // cell_ref row_ref::cell(size_t column_index) const 
-    {
-        return cell_ref(*this, col);
-    }
-
-
-    //========================================================================
-    // TABLE VIEW IMPLEMENTATION
-    //========================================================================
+//========================================================================
+// TABLE VIEW IMPLEMENTATION
+//========================================================================
     
     // Document iterator implementation
     inline table_view::document_iterator::document_iterator(
@@ -682,7 +332,6 @@ namespace arf
     inline row_view table_view::document_iterator::operator*() const
     {
         const auto& f = stack_.back();
-        assert(f.current_row && f.current_row->kind == decl_kind::table_row);
 
         return row_view(
             &f.cat->table_rows[f.current_row->row_index],
@@ -758,7 +407,6 @@ namespace arf
         }
     }
 
-
     inline std::optional<size_t> table_view::column_index(const std::string& name) const 
     {
         std::string lower = detail::to_lower(name);
@@ -805,8 +453,6 @@ namespace arf
     
     inline row_view table_view::recursive_iterator::operator*() const
     {
-        assert(!at_end_ && !stack_.empty());
-
         const auto& f = stack_.back();
         return row_view(
             &f.cat->table_rows[f.row_index],
@@ -863,9 +509,9 @@ namespace arf
         at_end_ = true;
     }
     
-    //========================================================================
-    // ROW VIEW IMPLEMENTATION
-    //========================================================================
+//========================================================================
+// ROW VIEW IMPLEMENTATION
+//========================================================================
     
     template<typename T>
     const T* row_view::get_ptr(const std::string& column_name) const
@@ -918,15 +564,39 @@ namespace arf
             return *p;
         return std::nullopt;
     }
+
+    inline std::optional<std::span<const std::string>>
+    row_view::get_string_array(const std::string& col) const
+    {
+        if (auto* v = get_ptr<std::vector<std::string>>(col))
+            return std::span<const std::string>(*v);
+        return std::nullopt;
+    }
+
+    inline std::optional<std::span<const int64_t>>
+    row_view::get_int_array(const std::string& col) const
+    {
+        if (auto* v = get_ptr<std::vector<int64_t>>(col))
+            return std::span<const int64_t>(*v);
+        return std::nullopt;
+    }
+
+    inline std::optional<std::span<const double>>
+    row_view::get_float_array(const std::string& col) const
+    {
+        if (auto* v = get_ptr<std::vector<double>>(col))
+            return std::span<const double>(*v);
+        return std::nullopt;
+    }    
         
     inline bool row_view::is_base_row() const 
     {
         return source_category_ == table_->cat_;
     }
 
-    //========================================================================
-    // PUBLIC QUERY API IMPLEMENTATION
-    //========================================================================
+//========================================================================
+// PUBLIC QUERY API IMPLEMENTATION
+//========================================================================
 
     inline std::optional<value_ref> get(const document& doc, const std::string& path)
     {

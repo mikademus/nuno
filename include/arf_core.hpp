@@ -1,5 +1,7 @@
 // arf_core.hpp - A Readable Format (Arf!) - Core Data Structures
 // Version 0.2.0
+// Copyright 2025 Mikael Ueno A
+// Licenced as-is under the MIT licence.
 
 #ifndef ARF_CORE_HPP
 #define ARF_CORE_HPP
@@ -12,12 +14,7 @@
 #include <optional>
 #include <memory>
 #include <sstream>
-#include <iomanip>
-#include <functional>
 #include <algorithm>
-#include <stdexcept>
-#include <cstdlib>
-#include <cstring>
 
 namespace arf 
 {

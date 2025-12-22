@@ -1,10 +1,13 @@
 // arf_parser.hpp - A Readable Format (Arf!) - Parser
 // Version 0.2.0
+// Copyright 2025 Mikael Ueno A
+// Licenced as-is under the MIT licence.
 
 #ifndef ARF_PARSER_HPP
 #define ARF_PARSER_HPP
 
 #include "arf_core.hpp"
+#include <cstdlib>
 
 namespace arf 
 {
@@ -295,7 +298,9 @@ namespace arf
                 if (lower == "str[]") return value_type::string_array;
                 if (lower == "int[]") return value_type::int_array;
                 if (lower == "float[]") return value_type::float_array;
-                if (lower != "str") add_error("key has unknown type \"" + type_str + "\"");
+                if (lower == "str") return value_type::string;
+                
+                add_error("key has unknown type \"" + type_str + "\" (defaulting to str)");
                 return value_type::string;
             }
             
