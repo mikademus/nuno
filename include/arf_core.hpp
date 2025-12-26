@@ -1,5 +1,5 @@
 // arf_core.hpp - A Readable Format (Arf!) - Core Data Structures
-// Version 0.2.0
+// Version 0.3.0
 // Copyright 2025 Mikael Ueno A
 // Licenced as-is under the MIT licence.
 
@@ -9,20 +9,68 @@
 #include <string>
 #include <string_view>
 #include <vector>
-#include <map>
+//#include <map>
 #include <variant>
 #include <optional>
-#include <memory>
-#include <sstream>
+//#include <memory>
+//#include <sstream>
 #include <algorithm>
+#include <concepts>
 
 namespace arf 
 {
-    //========================================================================
-    // CORE DATA STRUCTURES
-    //========================================================================
+//========================================================================
+// Forward declarations and selected aliases
+//========================================================================
+
+    struct document;
+    struct category;
+
+//========================================================================
+// IDs
+//========================================================================
+
+    inline constexpr size_t npos() { return static_cast<size_t>(-1); }
+
+    template <typename Tag>
+    struct id
+    {
+        size_t val;
+
+        explicit id(size_t v = npos()) : val(v) {}
+        operator size_t() const { return val; }
+        id & operator= (size_t v) { val = v; return *this; }        
+        auto operator<=>(id const &) const = default;
+        id & operator++() { ++val; return *this; }
+        id operator++(int) { id temp = *this; ++val; return temp; }
+    };
     
-    enum class value_type 
+    template <typename Tag>
+    constexpr id<Tag> invalid_id()
+    {
+        return id<Tag>{ npos() };
+    }
+
+    struct category_tag;
+    struct table_tag;
+    struct table_row_tag;
+
+    using category_id   = id<category_tag>;
+    using table_id      = id<table_tag>;
+    using table_row_id  = id<table_row_tag>;
+
+//========================================================================
+// Global aliases
+//========================================================================
+
+    using parse_event_target = std::variant<std::monostate, category_id, table_id, table_row_id>;
+
+
+//========================================================================
+// Values
+//========================================================================
+    
+    enum class value_type
     {
         string,
         integer,
@@ -45,112 +93,121 @@ namespace arf
         key_value,  // declared via key = value
         table_cell  // declared inside a table row
     };
-    
-    using value = std::variant
-                  <
-                      std::string,
-                      int64_t,
-                      double,
-                      bool,
-                      std::vector<std::string>,
-                      std::vector<int64_t>,
-                      std::vector<double>
-                  >;
-    
+
+    using value = std::variant<
+        std::string,
+        int64_t,
+        double,
+        bool,
+        std::vector<std::string>,
+        std::vector<int64_t>,
+        std::vector<double>
+    >;
+
     struct typed_value
     {
         value           val;
         value_type      type;
-        type_ascription type_source {type_ascription::tacit};
-        value_locus     origin_site;
-
-        // Present iff value came from a literal in the source
-        std::optional<std::string> source_literal;        
+        type_ascription type_source;
+        value_locus     origin;
+        std::optional<std::string> source_literal;
     };
 
-    struct column 
+//========================================================================
+// Structure and parsing
+//========================================================================
+    
+    struct source_location
+    {
+        size_t line {0};    // 1-based
+    };
+
+    enum class parse_event_kind
+    {
+        empty_line,
+        comment,
+        invalid,
+
+        key_value,
+        table_header,
+        table_row,
+
+        category_open,
+        category_close
+    };
+
+    struct parse_event
+    {
+        parse_event_kind   kind;
+        source_location    loc;
+        std::string        text;        
+        parse_event_target target; // Optional semantic attachment
+    };    
+
+
+//========================================================================
+// Remaining data structures
+//========================================================================
+
+    struct category
+    {
+        category_id id;
+        std::string name;
+        category_id parent;    // npos for root
+    };
+
+    struct column
     {
         std::string     name;
         value_type      type;
-        type_ascription type_source {type_ascription::tacit};
-        
-        bool operator==(const column& other) const
-        {
-            return name == other.name && type == other.type && type_source == other.type_source;
-        }
+        type_ascription type_source;
     };
-
-    struct category;
-    
-    using table_row_id = size_t;
 
     struct table_row
     {
-        table_row_id global_id;
+        table_row_id id;
+        category_id  owning_category;
         std::vector<typed_value> cells;
-        const category* source_category {nullptr};
-    };
-    
-    enum class decl_kind
-    {
-        key,
-        table_row,
-        subcategory
     };
 
-    struct decl_ref
+    struct table
     {
-        decl_kind kind;
-        std::string name;           // empty for table
-        table_row_id row_id;        // global, authoritative
-        size_t row_index {0};       // row index (used for table_row)
-        const category* subcategory {nullptr}; // valid iff kind == subcategory
+        table_id              id;
+        category_id           owning_category;
+        std::vector<column>   columns;
+        std::vector<table_row_id> rows;   // in authored order
     };
 
-    struct category 
+    struct document
     {
-        std::string name;
-        category * parent {nullptr};
-        std::map<std::string, typed_value> key_values;
-        std::vector<column> table_columns;
-        std::vector<table_row> table_rows;
-        std::map<std::string, std::unique_ptr<category>> subcategories;
-        std::vector<decl_ref> source_order;
+        // Primary spine
+        std::vector<parse_event> events;
+
+        // Entities
+        std::vector<category>    categories;
+        std::vector<table>       tables;
+        std::vector<table_row>   rows;
     };
-    
-    struct document 
+
+    struct parse_error
     {
-        std::map<std::string, std::unique_ptr<category>> categories;
+        source_location loc;
+        std::string     message;
+        std::string     text;
     };
-    
-    struct parse_error 
-    {
-        size_t line_number;
-        std::string message;
-        std::string line_content;
         
-        std::string to_string() const 
-        {
-            std::ostringstream oss;
-            oss << "Line " << line_number << ": " << message;
-            if (!line_content.empty())
-                oss << "\n  > " << line_content;
-            return oss.str();
-        }
-    };
-    
-    struct parse_context 
+    struct parse_context
     {
-        std::optional<document> doc;
+        document              doc;
         std::vector<parse_error> errors;
-        
-        bool has_value() const { return doc.has_value(); }
+
         bool has_errors() const { return !errors.empty(); }
     };
+
     
-    //========================================================================
-    // UTILITY FUNCTIONS
-    //========================================================================
+//========================================================================
+// UTILITY FUNCTIONS
+//========================================================================
     
     namespace detail 
     {
