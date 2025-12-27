@@ -198,7 +198,7 @@ namespace arf
         
     struct parse_context
     {
-        document              doc;
+        document                 doc;
         std::vector<parse_error> errors;
 
         bool has_errors() const { return !errors.empty(); }

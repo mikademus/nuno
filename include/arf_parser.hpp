@@ -17,6 +17,7 @@ namespace arf
 //========================================================================
     
     parse_context parse(const std::string& input);
+    parse_context parse(const std::string_view input);
     
     
 //========================================================================
@@ -39,7 +40,7 @@ namespace arf
             std::vector<category_id> category_stack;
             table_id active_table {invalid_id<table_tag>()};
 
-            void parse(const std::string& input);
+            void parse(std::string_view input);
             void add_error(const std::string& message);
 
             std::vector<std::string> split_lines(const std::string& input);
@@ -47,7 +48,7 @@ namespace arf
             template<typename T, typename F>
             std::vector<T> split_array(const std::string& str, F converter);
 
-            void parse_line(const std::string& line, size_t line_no);
+            void parse_line(std::string_view line, size_t line_no);
             value_type parse_type(const std::string& type_str);
             std::optional<value> parse_value(const std::string& str, value_type type);
 
@@ -65,19 +66,32 @@ namespace arf
 
 //---------------------------------------------------------------------------        
 
-        void parser_impl::parse(const std::string& input)
+        void parser_impl::parse(std::string_view input)
         {
-            std::istringstream ss(input);
-            std::string line;
             size_t line_no = 0;
-
-            // Create implicit root category
             create_root_category();
-
-            while (std::getline(ss, line))
+            
+            size_t start = 0;
+            while (start <= input.size()) // Note: <= to handle trailing newline
             {
-                ++line_no;
-                parse_line(line, line_no);
+                size_t end = input.find('\n', start);
+                
+                // Extract line (either to newline or to end of input)
+                std::string_view line = (end == std::string_view::npos) 
+                    ? input.substr(start) 
+                    : input.substr(start, end - start);
+                
+                // Trim \r for Windows line endings
+                if (!line.empty() && line.back() == '\r')
+                    line.remove_suffix(1);
+                
+                parse_line(line, ++line_no);
+                
+                // If no more newlines, we're done
+                if (end == std::string_view::npos)
+                    break;
+                    
+                start = end + 1;
             }
         }
 
@@ -253,7 +267,7 @@ namespace arf
         
 //---------------------------------------------------------------------------        
 
-        void parser_impl::parse_line(const std::string& line, size_t line_no)
+        void parser_impl::parse_line(std::string_view line, size_t line_no)
         {
             std::string_view trimmed = trim_sv(line);
 
@@ -477,7 +491,15 @@ namespace arf
         p.parse(input);
         return std::move(p.ctx);
     }
+    
+    parse_context parse(const std::string_view input)
+    {
+        parser_impl p;
+        p.parse(input);
+        return std::move(p.ctx);
+    }
         
+
 } // namespace arf
 
 #endif // ARF_PARSER_HPP
