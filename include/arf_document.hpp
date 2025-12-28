@@ -14,6 +14,11 @@
 
 namespace arf
 {
+    struct materialiser_config
+    {
+        size_t max_depth;
+    };    
+    
 //========================================================================
 // Forward declarations
 //========================================================================
@@ -28,19 +33,20 @@ namespace arf
 
     enum class semantic_error_kind
     {
+        unknown_type,
         type_mismatch,
+        invalid_literal,
+        column_arity_mismatch,
+        duplicate_key,
         invalid_category_close,
-        duplicate_name,
-        orphan_row,
-        max_depth_exceeded,
-        invalid_table_shape
+        depth_exceeded
     };
 
     struct semantic_error
     {
         semantic_error_kind kind;
-        source_location     loc;
-        std::string         message;
+        source_location    loc;
+        std::string        message;
     };
 
 //========================================================================

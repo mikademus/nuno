@@ -148,7 +148,7 @@ namespace arf
         T result;
         std::vector<Error> errors;
 
-        bool has_errors() const;
+        bool has_errors() const { return !errors.empty(); }
     };    
     
 //========================================================================

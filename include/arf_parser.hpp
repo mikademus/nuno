@@ -76,14 +76,8 @@ namespace arf
         std::string     message;
         std::string     text;
     };
-        
-    struct parse_context
-    {
-        cst_document             doc;
-        std::vector<parse_error> errors;
 
-        bool has_errors() const { return !errors.empty(); }
-    };
+    using parse_context = context<cst_document, parse_error>;
 
     parse_context parse(const std::string& input);
     parse_context parse(const std::string_view input);    
