@@ -60,7 +60,7 @@ namespace arf
     using table_id      = id<table_tag>;
     using table_row_id  = id<table_row_tag>;
     using key_id        = id<key_tag>;
-    
+
 //========================================================================
 // Global aliases
 //========================================================================
@@ -216,21 +216,6 @@ namespace arf
         constexpr size_t MAX_LINES = 1'000'000;
         constexpr std::string_view ROOT_CATEGORY_NAME = "__root__";
         
-        inline std::string_view trim_sv(std::string_view s) 
-        {
-            size_t start = s.find_first_not_of(" \t\r\n");
-            if (start == std::string_view::npos) return {};
-            size_t end = s.find_last_not_of(" \t\r\n");
-            return s.substr(start, end - start + 1);
-        }
-        
-        inline std::string to_lower(const std::string& s)
-        {
-            std::string result = s;
-            std::transform(result.begin(), result.end(), result.begin(), ::tolower);
-            return result;
-        }
-        
         inline std::string type_to_string(value_type type)
         {
             switch (type)
@@ -246,6 +231,74 @@ namespace arf
                 default: return "str";
             }
         }
+
+        inline std::string_view trim_sv(std::string_view s) 
+        {
+            size_t start = s.find_first_not_of(" \t\r\n");
+            if (start == std::string_view::npos) return {};
+            size_t end = s.find_last_not_of(" \t\r\n");
+            return s.substr(start, end - start + 1);
+        }
+        
+        inline std::string to_lower(const std::string& s)
+        {
+            std::string result = s;
+            std::transform(result.begin(), result.end(), result.begin(), ::tolower);
+            return result;
+        }
+        
+        inline value_type infer_value_type(std::string_view sv)
+        {
+            auto s = trim_sv(sv);
+            if (s.empty())
+                return value_type::string;
+
+            // boolean
+            {
+                auto l = to_lower(std::string(s));
+                if (l == "true" || l == "false" || l == "yes" || l == "no" || l == "0" || l == "1")
+                    return value_type::boolean;
+            }
+
+            // integer
+            {
+                char* end = nullptr;
+                std::strtoll(s.data(), &end, 10);
+                if (end == s.data() + s.size())
+                    return value_type::integer;
+            }
+
+            // decimal
+            {
+                char* end = nullptr;
+                std::strtod(s.data(), &end);
+                if (end == s.data() + s.size())
+                    return value_type::decimal;
+            }
+
+            // array (very conservative)
+            if (s.find('|') != std::string_view::npos)
+                return value_type::string_array;
+
+            return value_type::string;
+        }
+
+        inline std::optional<value_type>
+        parse_declared_type(std::string_view sv)
+        {
+            auto s = to_lower(std::string(trim_sv(sv)));
+
+            if (s == "int")     return value_type::integer;
+            if (s == "float")   return value_type::decimal;
+            if (s == "bool")    return value_type::boolean;
+            if (s == "date")    return value_type::date;
+            if (s == "str")     return value_type::string;
+            if (s == "str[]")   return value_type::string_array;
+            if (s == "int[]")   return value_type::int_array;
+            if (s == "float[]") return value_type::float_array;
+
+            return std::nullopt;
+        }        
     }
     
 } // namespace arf

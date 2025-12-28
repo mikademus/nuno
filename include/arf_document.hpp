@@ -124,9 +124,11 @@ namespace arf
 
         struct key_node
         {
-            std::string   name;
-            category_id   owner;
-            typed_value   value;
+            std::string     name;
+            category_id     owner;
+            value_type      type;
+            type_ascription type_source;
+            typed_value     value;
         };
 
         std::vector<category_node> categories_;
@@ -319,40 +321,77 @@ namespace arf
                     if (pos == std::string::npos)
                         return std::nullopt;
 
-                    std::string name = detail::to_lower(
-                        std::string(detail::trim_sv(ev.text.substr(0, pos)))
-                    );
-                    std::string literal =
-                        std::string(detail::trim_sv(ev.text.substr(pos + 1)));
+                    std::string lhs = std::string(trim_sv(ev.text.substr(0, pos)));
+                    std::string rhs = std::string(trim_sv(ev.text.substr(pos + 1)));
 
-                    auto& cat = doc.categories_[current.val];
+                    // ------------------------------------------------------------
+                    // Parse name[:type]
+                    // ------------------------------------------------------------
 
-                    // Collision check: keys only
+                    std::string name;
+                    std::optional<value_type> declared_type;
+
+                    if (auto type_pos = lhs.find(':'); type_pos != std::string::npos)
+                    {
+                        name = to_lower(lhs.substr(0, type_pos));
+
+                        auto type_sv = trim_sv(lhs.substr(type_pos + 1));
+                        declared_type = parse_declared_type(type_sv);
+                        if (!declared_type)
+                            return std::nullopt; // unknown declared type
+                    }
+                    else
+                    {
+                        name = to_lower(lhs);
+                    }
+
+                    auto& cat = doc.categories_[current];
+
+                    // ------------------------------------------------------------
+                    // Collision check (keys only)
+                    // ------------------------------------------------------------
+
                     for (auto kid : cat.keys)
                     {
                         if (doc.keys_[kid.val].name == name)
                             return std::nullopt;
                     }
 
+                    // ------------------------------------------------------------
+                    // Determine type (classification only)
+                    // ------------------------------------------------------------
+
+                    value_type final_type = declared_type
+                        ? *declared_type
+                        : infer_value_type(rhs);
+
+                    // ------------------------------------------------------------
+                    // Construct key
+                    // ------------------------------------------------------------
+
                     arf_document::key_node kn;
-                    kn.name  = std::move(name);
+                    kn.name  = name;
                     kn.owner = current;
+                    kn.type  = final_type;
+                    kn.type_source = declared_type
+                        ? type_ascription::declared
+                        : type_ascription::tacit;
 
                     typed_value tv;
-                    tv.type           = value_type::string; // parsed later
-                    tv.type_source    = type_ascription::tacit;
+                    tv.type           = kn.type;
+                    tv.type_source    = kn.type_source;
                     tv.origin         = value_locus::key_value;
-                    tv.source_literal = literal;
-                    tv.val            = literal;
+                    tv.source_literal = rhs;
 
                     kn.value = std::move(tv);
 
-                    key_id kid { doc.keys_.size() };
+                    key_id kid{ doc.keys_.size() };
                     doc.keys_.push_back(std::move(kn));
                     cat.keys.push_back(kid);
+
                     break;
                 }
-                
+
                 default:
                     break;
             }
