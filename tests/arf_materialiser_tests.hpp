@@ -7,7 +7,7 @@
 namespace arf::tests
 {
 
-static bool test_same_key_in_different_categories_allowed()
+static bool same_key_in_different_categories_allowed()
 {
     constexpr std::string_view src =
         "a = 1\n"
@@ -19,7 +19,7 @@ static bool test_same_key_in_different_categories_allowed()
     return true;
 }
 
-static bool test_duplicate_key_rejected()
+static bool duplicate_key_rejected()
 {
     constexpr std::string_view src =
         "a = 1\n"
@@ -30,7 +30,7 @@ static bool test_duplicate_key_rejected()
     return true;
 }
 
-static bool test_declared_key_type_mismatch()
+static bool declared_key_type_mismatch()
 {
     constexpr std::string_view src =
         "x:int = hello\n";
@@ -40,7 +40,7 @@ static bool test_declared_key_type_mismatch()
     return true;
 }
 
-static bool test_declared_column_type_mismatch()
+static bool declared_column_type_mismatch()
 {
     constexpr std::string_view src =
         "# a:int\n"
@@ -53,7 +53,7 @@ static bool test_declared_column_type_mismatch()
     return true;
 }
 
-static bool test_named_collapse_closes_multiple_scopes()
+static bool named_collapse_closes_multiple_scopes()
 {
     constexpr std::string_view src =
         ":a\n"
@@ -67,7 +67,7 @@ static bool test_named_collapse_closes_multiple_scopes()
     return true;
 }
 
-static bool test_invalid_named_close_is_error()
+static bool invalid_named_close_is_error()
 {
     constexpr std::string_view src =
         ":a\n"
@@ -81,7 +81,7 @@ static bool test_invalid_named_close_is_error()
     return true;
 }
 
-static bool test_max_nesting_depth_enforced()
+static bool max_nesting_depth_enforced()
 {
     materialiser_options opts;
     opts.max_category_depth = 2;
@@ -98,7 +98,7 @@ static bool test_max_nesting_depth_enforced()
     return true;
 }
 
-static bool test_invalid_declared_key_type_is_error()
+static bool invalid_declared_key_type_is_error()
 {
     constexpr std::string_view src =
         "x:dragon = 42\n";
@@ -113,7 +113,7 @@ static bool test_invalid_declared_key_type_is_error()
     return true;
 }
 
-static bool test_invalid_declared_column_type_is_error()
+static bool invalid_declared_column_type_is_error()
 {
     constexpr std::string_view src =
         "# a:dragon\n"
@@ -129,20 +129,81 @@ static bool test_invalid_declared_column_type_is_error()
     return true;
 }
 
+static bool invalid_key_is_flagged()
+{
+    constexpr std::string_view src =
+        "x:dragon = 42\n";
+
+    auto ctx = load(src);
+    EXPECT(ctx.has_errors(), "no error emitted");
+
+    auto doc = ctx.document;
+    EXPECT(doc.key_count() == 1, "incorrect arity");
+
+    auto k = doc.key(key_id{0});
+    EXPECT(k.has_value(), "there is no key");
+    EXPECT(k->node->semantic == semantic_state::invalid, "the invalid state flag is not set");
+    EXPECT(k->value().type == value_type::string, "the key type has not collapsed to string");
+
+    return true;
+}
+
+static bool invalid_column_is_flagged()
+{
+    constexpr std::string_view src =
+        "# a:dragon\n"
+        "  42\n";
+
+    auto ctx = load(src);
+    EXPECT(ctx.has_errors(), "no error emitted");
+
+    auto doc = ctx.document;
+    auto tbl = doc.table(table_id{0});
+    EXPECT(tbl.has_value(), "there is no table");
+
+    auto col = tbl->node->columns[0];
+    EXPECT(col.semantic == semantic_state::invalid, "the invalid state flag is not set");
+    EXPECT(col.type == value_type::string, "the key type has not collapsed to string");
+
+    return true;
+}
+
+static bool invalid_cell_is_flagged()
+{
+    constexpr std::string_view src =
+        "# a:int\n"
+        "  hello\n";
+
+    auto ctx = load(src);
+    EXPECT(ctx.has_errors(), "no error emitted");
+
+    auto row = ctx.document.row(table_row_id{0});
+    EXPECT(row.has_value(), "there is no row");
+
+    auto cell = row->node->cells[0];
+    EXPECT(cell.semantic == semantic_state::invalid, "the invalid state flag is not set");
+    EXPECT(cell.type == value_type::string, "the key type has not collapsed to string");
+
+    return true;
+}
+
 
 //----------------------------------------------------------------------------
 
 inline void run_materialiser_tests()
 {
-    RUN_TEST(test_same_key_in_different_categories_allowed);
-    RUN_TEST(test_duplicate_key_rejected);
-    RUN_TEST(test_declared_key_type_mismatch);
-    RUN_TEST(test_declared_column_type_mismatch);
-    RUN_TEST(test_named_collapse_closes_multiple_scopes);
-    RUN_TEST(test_invalid_named_close_is_error);
-    RUN_TEST(test_max_nesting_depth_enforced);
-    RUN_TEST(test_invalid_declared_key_type_is_error);
-    RUN_TEST(test_invalid_declared_column_type_is_error);
+    RUN_TEST(same_key_in_different_categories_allowed);
+    RUN_TEST(duplicate_key_rejected);
+    RUN_TEST(declared_key_type_mismatch);
+    RUN_TEST(declared_column_type_mismatch);
+    RUN_TEST(named_collapse_closes_multiple_scopes);
+    RUN_TEST(invalid_named_close_is_error);
+    RUN_TEST(max_nesting_depth_enforced);
+    RUN_TEST(invalid_declared_key_type_is_error);
+    RUN_TEST(invalid_declared_column_type_is_error);
+    RUN_TEST(invalid_key_is_flagged);
+    RUN_TEST(invalid_column_is_flagged);    
+    RUN_TEST(invalid_cell_is_flagged);    
 }
 
 }

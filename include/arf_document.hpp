@@ -121,6 +121,7 @@ namespace arf
             value_type      type;
             type_ascription type_source;
             typed_value     value;
+            semantic_state  semantic = semantic_state::valid;
         };
 
         std::vector<category_node> categories_;

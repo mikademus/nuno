@@ -15,8 +15,8 @@
 #include "arf_core.hpp"
 #include "arf_parser.hpp"
 #include "arf_document.hpp"
-#include <array>
 #include <unordered_map>
+
 
 namespace arf
 {
@@ -248,8 +248,9 @@ namespace
             });
 
             // Degrade to string
-            tv.type = value_type::string;
-            tv.val  = std::string(literal);
+            tv.type     = value_type::string;
+            tv.val      = std::string(literal);
+            tv.semantic = semantic_state::invalid;
             return tv;
         }
 
@@ -478,7 +479,8 @@ namespace
         {
             if (col.type_source == type_ascription::declared)
             {
-                auto vt = parse_declared_type(col.declared_type.value(), out_);
+                auto const & s = col.declared_type.value();
+                auto vt = parse_declared_type(s, out_);
                 if (!vt)
                 {
                     out_.errors.push_back({
@@ -488,11 +490,13 @@ namespace
                     });
 
                     col.type = value_type::string; // collapse
-                    //col.flags.invalid_declared_type = true; // FUTURE
+                    col.semantic = semantic_state::invalid;
                 }
                 else
                 {
                     col.type = *vt;
+                    if (s == "date")
+                        col.semantic = semantic_state::invalid;
                 }
             }
             else
@@ -583,6 +587,7 @@ namespace
                 // Collapse declared type
                 target        = value_type::string;
                 k.type_source = type_ascription::tacit;
+                k.semantic    = semantic_state::invalid;
             }
             else
             {
@@ -597,6 +602,9 @@ namespace
             cst.loc,
             out_
         );
+
+        if (tv.semantic == semantic_state::invalid)
+            k.semantic = semantic_state::invalid;
 
         // 3. Finalise type
         k.type  = tv.type;

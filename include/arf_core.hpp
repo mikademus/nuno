@@ -6,12 +6,13 @@
 #ifndef ARF_CORE_HPP
 #define ARF_CORE_HPP
 
+#include <algorithm>
+#include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
-#include <vector>
 #include <variant>
-#include <optional>
-#include <algorithm>
+#include <vector>
 
 namespace arf 
 {
@@ -60,6 +61,12 @@ namespace arf
 // Values
 //========================================================================
     
+    enum struct semantic_state : uint8_t
+    {
+        valid,
+        invalid
+    };
+
     enum class value_type
     {
         unresolved,
@@ -102,6 +109,7 @@ namespace arf
         type_ascription type_source;
         value_locus     origin;
         std::optional<std::string> source_literal;
+        semantic_state  semantic = semantic_state::valid;
     };
 
 //========================================================================
@@ -121,6 +129,7 @@ namespace arf
         value_type      type;
         type_ascription type_source;
         std::optional<std::string> declared_type;
+        semantic_state  semantic = semantic_state::valid;
     };
 
     struct table_row
