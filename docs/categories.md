@@ -1,29 +1,29 @@
 # Current format
 
 * `top_category:`
-* `:subcategory`: nests under the currently open cateogry (push)
-* `/subcategory`: explicitly closes a subcategory
-* `/`: closes the current subcategory (pop)
+* `:subcategory` - nests under the currently open cateogry (push)
+* `/subcategory` - explicitly closes a subcategory
+* `/` - closes the current subcategory (pop)
 
 # New and extended format
 
 Top categories have trailing colons. The same.
-`top:`
+* `top:` - top category
 
 Subategories are colon-delimited paths:
-1. `:rho`: nest under the top category
-2. `:foo`: nest under the top category, sibling to and closing `rho`
-3. `:foo:bar`: nest under foo
-4. `:foo:bar:baz`: explicit path
-5. `:foo:bar`: returns to `foo:bar`, closing `foo:bar:baz`. Multiple levels can be closed immediately.
-6. `:phi`: starts a new subcategory under the top category, closing all other open subcategories
+1. `:rho` - nest under the top category
+2. `:foo` - nest under the top category, sibling to and closing `rho`
+3. `:foo:bar` - nest under foo
+4. `:foo:bar:baz` - explicit path
+5. `:foo:bar` - returns to `foo:bar`, closing `foo:bar:baz`. Multiple levels can be closed immediately.
+6. `:phi` - starts a new subcategory under the top category, closing all other open subcategories
 
 ## Shorthand
 
-1. `:foo`: first subcategory
-2. `::bar`: nests under the current subcategory, creating `:foo:bar`.
-3. `:::baz`: creates `foo:bar:baz`.
-4. `:phi`: closes all subcategories until nearest sibling (`foo`).
+1. `:foo` - first subcategory
+2. `::bar` - nests under the current subcategory, creating `:foo:bar`.
+3. `:::baz` - creates `foo:bar:baz`.
+4. `:phi` - closes all subcategories until nearest sibling (`foo`).
 
 ## Full format
 
