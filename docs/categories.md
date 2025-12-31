@@ -31,8 +31,8 @@ Concept (rehash):
 * Top categories end with colon, indicating "structure from here".
 * Subcategories begin with colon, indicating "there is content from here".
 * This leads naturally to a `top:sub1:sub2` syntax, giving meaning to 
-  ** the colon notation ("put it together and it is a path")
-  ** the colon stacking ("we can leave out the repeated segments")
+  * the colon notation ("put it together and it is a path")
+  * the colon stacking ("we can leave out the repeated segments")
 * Conceivably, the full form could be allowed as a general syntax.
 
 ## The old syntax
