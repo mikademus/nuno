@@ -75,7 +75,7 @@ While other formats create complex problems that require complex parsers, Arf! p
 
 ## Quick Example
 
-```
+```scala
 settings:
   version = 1.0.0
   seed = 12345
@@ -125,7 +125,7 @@ Arf! attempts to unify the strengths of each:
 Outside tables whitespace is purely cosmetic for the benefit of human readers. Writers are encouraged to use indentation, empty lines and comments to structure their files for the sake of presentation. Inside tables cells are separated by **two or more spaces**.
 
 ### Key/Value Pairs
-```
+```scala
 key = value
 ```
 #### String values
@@ -149,7 +149,7 @@ Preserving leading and trailing whitespace:
 > Stripping or interpreting such delimiters is the responsibility of the client.
 
 All valid:
-```
+```scala
 path = C:\Games\Foo\bar\n
 text = "   padded string   "
 regex = ^\w+\s+\w+$
@@ -157,7 +157,7 @@ regex = ^\w+\s+\w+$
 
 ### Type annotation:
 Keys may be optionally specified with a type. Untyped values default to strings when queried. The type follows the name separated by a colon:
-```
+```scala
 pi:float = 3.1415
 greeting:str[] = hello|world
 ```
@@ -178,7 +178,7 @@ Boolean arrays are currently unsupported. This is a deliberate design choice rat
 ### Lists (arrays)
 
 Values can be expressed in list-format:
-```
+```scala
 my_array:str[] = foo|bar|baz
 
 # id  arr:int[]
@@ -188,7 +188,7 @@ my_array:str[] = foo|bar|baz
 Lists must always be type annotated or will be treated as strings.
 
 ### Line comments
-```
+```scala
 // familiar from C++, Java, C#, etc.
 ```
 
@@ -198,21 +198,21 @@ The file can be structured into categories and subcategories to form a hierarchy
 Categories are explicitly declared (```name:``` or ```:name```) and closed (```/name```). See below for rules on automatic closing of categories.  
 
 A **top-level category** is a name that ends with a colon:
-```
+```scala
 settings:
 graphics:
 ```
 Top-level categories always originate from the root and reset any existing nesting of subcategories, thus they do not need to but may be explicitly closed.
 
 Note that Arf allows for definitions in the root:
-```
+```scala
 foo = 13
 top:
   bar = 42
 ```
 ### Subcategories
 A **subcategory** is declared by a name *starting* with a colon:
-```
+```scala
 :graphics
 /graphics
 
@@ -220,7 +220,7 @@ A **subcategory** is declared by a name *starting* with a colon:
 /video
 ```
 For brevity, a simple / can be used instead of the full ```/name``` syntax:
-```
+```scala
 :graphics
 /
 
@@ -229,7 +229,7 @@ For brevity, a simple / can be used instead of the full ```/name``` syntax:
 ```
 ### Nesting categories
 Subcategories can be nested:
-```
+```scala
 :settings
   :graphics
   /graphics
@@ -239,7 +239,7 @@ Subcategories can be nested:
 /settings
 ```
 Multiple subcategories can be closed through explicitly named closures:
-```
+```scala
 top:
   :sub1
   :sub2
@@ -250,7 +250,7 @@ top:
 Closing subcategories:
 * The ```/``` without name will only close the most recent subcategory.
 * Remember that a new top-level category will reset the nesting:
-```
+```scala
 top1:
   :sub1
     key_1 = value_1
@@ -272,11 +272,11 @@ More notes:
 
 Tables are declared by a hash (```#```) character as the table designator and the table headers are the names of the tabular data. 
 Columns are separated by **two or more spaces**.
-```
+```scala
 # name    type    value
 ```
 Headers can be type annotated,
-```
+```scala
 # name:str    type:str    value:int
 ```
 and--just like values--default to string if not typed.
@@ -291,7 +291,7 @@ Or more formally, a table remains active until one of the following occurs:
 * or EOF
 
 Example:
-```
+```scala
 # name    type    value:int
   sword   steel   12
   axe     iron    9
@@ -299,7 +299,7 @@ Example:
 
 ### Subcategories in tables
 Arf supports subdividing tables without restarting the header.
-```
+```scala
 items:
 #   name      type      value
 :weapons
@@ -321,7 +321,7 @@ Characteristics:
 * Closing a subcategory started inside the table returns to and continues the previous category in the nesting hierarchy.
 
 Example of a table wrapped in an owning category:
-```
+```scala
 :header
     # a   b
       1   2
@@ -335,7 +335,7 @@ Closing header closes the table within it.
 
 ## Practical Demonstration
 A larger example showing structure, nested categories, tables, and explicit closure:
-```
+```scala
 world:
     name = Eldershade
     seed = 1234
