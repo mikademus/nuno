@@ -1,0 +1,16 @@
+server_settings:
+    port:int = 8080
+    host = 127.0.0.1
+    max_connections = 1000
+
+:security
+    allow_insecure = false
+    // Use pipes for list format
+    trusted_ips:str[] = 192.168.1.1|192.168.1.50
+    
+    :certificates
+        path = /etc/ssl/certs/
+        auto_renew = true
+    /certificates
+/security
+

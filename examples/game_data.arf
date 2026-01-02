@@ -1,0 +1,24 @@
+// world_config.arf
+world_metadata:
+    author = "Mika"
+    version = 2.1.0
+    theme:str = grim_dark
+
+:factions
+    # id    tag         disposition:int   is_aggressive:bool
+      100   vanguard    75                false
+      101   raiders     -50               true
+/factions
+
+:loot_tables
+    # item_id   drop_rate:float   rarity
+    :common
+        1001    0.50              common
+        1002    0.25              common
+    /common
+    :legendary
+        9001    0.01              mythic
+        9002    0.005             artifact
+    /legendary
+/loot_tables
+

@@ -1,0 +1,11 @@
+# id    username    role        joined:date
+  1     primo       admin       2025-11-20
+  2     secondo     user        2026-01-02
+
+:custom_data
+    # user_id   key             value:str[]
+      1         editor_pref     vim
+      1         indent_style    allman
+      2         access          shared|store
+/custom_data
+
