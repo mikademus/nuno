@@ -238,7 +238,7 @@ player:
     arf::document& doc = *result.doc;
     
     // Test new get_array helper
-    auto tags = arf::get_array<std::string>(doc, "player.tags");
+    auto tags = arf::get_string_array(doc, "player.tags");
     if (tags)
     {
         std::cout << "✓ String array (get_array): ";
@@ -254,7 +254,7 @@ player:
         std::cout << "✗ Failed to get string array\n";
     }
     
-    auto scores = arf::get_array<int64_t>(doc, "player.scores");
+    auto scores = arf::get_int_array(doc, "player.scores");
     if (scores)
     {
         std::cout << "✓ Int array (get_array): ";
@@ -266,7 +266,7 @@ player:
         std::cout << "\n";
     }
     
-    auto multipliers = arf::get_array<double>(doc, "player.multipliers");
+    auto multipliers = arf::get_float_array(doc, "player.multipliers");
     if (multipliers)
     {
         std::cout << "✓ Float array (get_array): ";
@@ -351,7 +351,7 @@ data:
         std::cout << "    is_array: "        << (array_ref->is_array() ? "yes" : "no") << "\n";
         std::cout << "    is_string_array: " << (array_ref->is_string_array() ? "yes" : "no") << "\n";
         
-        auto arr = array_ref->as_array<std::string>();
+        auto arr = array_ref->string_array();
         std::cout << "    values: ";
         for (size_t i = 0; i < arr->size(); ++i)
         {

@@ -1,32 +1,82 @@
 // arf_core.hpp - A Readable Format (Arf!) - Core Data Structures
-// Version 0.2.0
+// Version 0.3.0
+// Copyright 2025 Mikael Ueno A
+// Licenced as-is under the MIT licence.
 
 #ifndef ARF_CORE_HPP
 #define ARF_CORE_HPP
 
+#include <algorithm>
+#include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
-#include <vector>
-#include <map>
 #include <variant>
-#include <optional>
-#include <memory>
-#include <sstream>
-#include <iomanip>
-#include <functional>
-#include <algorithm>
-#include <stdexcept>
-#include <cstdlib>
-#include <cstring>
+#include <vector>
 
 namespace arf 
 {
-    //========================================================================
-    // CORE DATA STRUCTURES
-    //========================================================================
-    
-    enum class value_type 
+//========================================================================
+// Forward declarations and selected aliases
+//========================================================================
+
+    struct category;
+
+//========================================================================
+// IDs
+//========================================================================
+
+    inline constexpr size_t npos() { return static_cast<size_t>(-1); }
+
+    template <typename Tag>
+    struct id
     {
+        size_t val;
+
+        explicit id(size_t v = npos()) : val(v) {}
+        operator size_t() const { return val; }
+        id & operator= (size_t v) { val = v; return *this; }        
+        auto operator<=>(id const &) const = default;
+        id & operator++() { ++val; return *this; }
+        id operator++(int) { id temp = *this; ++val; return temp; }
+    };
+    
+    template <typename Tag>
+    constexpr id<Tag> invalid_id()
+    {
+        return id<Tag>{ npos() };
+    }
+
+    struct category_tag;
+    struct table_tag;
+    struct table_row_tag;
+    struct key_tag;
+
+    using category_id   = id<category_tag>;
+    using table_id      = id<table_tag>;
+    using table_row_id  = id<table_row_tag>;
+    using key_id        = id<key_tag>;
+
+//========================================================================
+// Values
+//========================================================================
+    
+    enum struct semantic_state : uint8_t
+    {
+        valid,
+        invalid
+    };
+
+    enum class contamination_state : uint8_t
+    {
+        clean,
+        contaminated
+    };
+
+
+    enum class value_type
+    {
+        unresolved,
         string,
         integer,
         decimal,
@@ -36,109 +86,113 @@ namespace arf
         int_array,
         float_array
     };
-    
-    using value = std::variant
-                  <
-                      std::string,
-                      int64_t,
-                      double,
-                      bool,
-                      std::vector<std::string>,
-                      std::vector<int64_t>,
-                      std::vector<double>
-                  >;
-    
-    struct column 
+
+    enum class type_ascription
     {
-        std::string name;
-        value_type type;
-        
-        bool operator==(const column& other) const
-        {
-            return name == other.name && type == other.type;
-        }
-    };
-    
-    using table_row = std::vector<value>;
-    
-    enum class decl_kind
-    {
-        key,
-        table_row,
-        subcategory
+        tacit,    // implicit, not defined in source
+        declared  // explicitly defined in source
     };
 
-    struct decl_ref
+    enum class value_locus
     {
-        decl_kind kind;
-        std::string name; // empty for table
-        size_t row_index {0};   // row index (used for table_row)
+        key_value,  // declared via key = value
+        table_cell  // declared inside a table row
     };
 
-    struct category 
+    struct typed_value;
+
+    using value = std::variant<
+        std::monostate,
+        std::string,
+        int64_t,
+        double,
+        bool,
+        std::vector<typed_value>
+    >;
+
+    struct typed_value
     {
+        value               val;
+        value_type          type;
+        type_ascription     type_source;
+        value_locus         origin;
+        std::optional<std::string> source_literal;
+        semantic_state      semantic      = semantic_state::valid;
+        contamination_state contamination = contamination_state::clean;
+    };
+
+//========================================================================
+// Remaining data structures
+//========================================================================
+
+    struct category
+    {
+        category_id id;
         std::string name;
-        category * parent {nullptr};
-        std::map<std::string, value> key_values;
-        std::vector<column> table_columns;
-        std::vector<table_row> table_rows;
-        std::map<std::string, std::unique_ptr<category>> subcategories;
-        std::vector<decl_ref> source_order;
+        category_id parent;    // npos for root
     };
-    
-    struct document 
+
+    struct column
     {
-        std::map<std::string, std::unique_ptr<category>> categories;
+        std::string     name;
+        value_type      type;
+        type_ascription type_source;
+        std::optional<std::string> declared_type;
+        semantic_state  semantic = semantic_state::valid;
     };
-    
-    struct parse_error 
+
+    struct table_row
     {
-        size_t line_number;
-        std::string message;
-        std::string line_content;
-        
-        std::string to_string() const 
-        {
-            std::ostringstream oss;
-            oss << "Line " << line_number << ": " << message;
-            if (!line_content.empty())
-                oss << "\n  > " << line_content;
-            return oss.str();
-        }
+        table_row_id id;
+        category_id  owning_category;
+        std::vector<typed_value> cells;
     };
-    
-    struct parse_context 
+
+    struct table
     {
-        std::optional<document> doc;
-        std::vector<parse_error> errors;
-        
-        bool has_value() const { return doc.has_value(); }
+        table_id              id;
+        category_id           owning_category;
+        std::vector<column>   columns;
+        std::vector<table_row_id> rows;   // in authored order
+    };
+
+//========================================================================
+// Document generation context
+//========================================================================
+
+    struct source_location
+    {
+        size_t line {0};    // 1-based
+        size_t column {0};  // 1-based
+    };
+
+    template <typename ERROR_KIND>
+    struct error
+    {
+        ERROR_KIND         kind;
+        source_location    loc;
+        std::string        message;
+    };
+
+    template <typename T, typename ERROR_KIND>
+    struct context
+    {
+        T document;
+        std::vector<error<ERROR_KIND>> errors;
+
+        T * operator->() { return &document; } 
+
         bool has_errors() const { return !errors.empty(); }
-    };
+    };    
     
-    //========================================================================
-    // UTILITY FUNCTIONS
-    //========================================================================
+//========================================================================
+// UTILITY FUNCTIONS
+//========================================================================
     
     namespace detail 
     {
         constexpr size_t MAX_LINES = 1'000'000;
         constexpr std::string_view ROOT_CATEGORY_NAME = "__root__";
-        
-        inline std::string_view trim_sv(std::string_view s) 
-        {
-            size_t start = s.find_first_not_of(" \t\r\n");
-            if (start == std::string_view::npos) return {};
-            size_t end = s.find_last_not_of(" \t\r\n");
-            return s.substr(start, end - start + 1);
-        }
-        
-        inline std::string to_lower(const std::string& s)
-        {
-            std::string result = s;
-            std::transform(result.begin(), result.end(), result.begin(), ::tolower);
-            return result;
-        }
         
         inline std::string type_to_string(value_type type)
         {
@@ -155,6 +209,38 @@ namespace arf
                 default: return "str";
             }
         }
+
+        inline std::string_view trim_sv(std::string_view s) 
+        {
+            size_t start = s.find_first_not_of(" \t\r\n");
+            if (start == std::string_view::npos) return {};
+            size_t end = s.find_last_not_of(" \t\r\n");
+            return s.substr(start, end - start + 1);
+        }
+        
+        inline std::string to_lower(const std::string& s)
+        {
+            std::string result = s;
+            std::transform(result.begin(), result.end(), result.begin(), ::tolower);
+            return result;
+        }
+
+        inline std::optional<value_type>
+        parse_declared_type(std::string_view sv)
+        {
+            auto s = to_lower(std::string(trim_sv(sv)));
+
+            if (s == "int")     return value_type::integer;
+            if (s == "float")   return value_type::decimal;
+            if (s == "bool")    return value_type::boolean;
+            if (s == "date")    return value_type::date;
+            if (s == "str")     return value_type::string;
+            if (s == "str[]")   return value_type::string_array;
+            if (s == "int[]")   return value_type::int_array;
+            if (s == "float[]") return value_type::float_array;
+
+            return std::nullopt;
+        }        
     }
     
 } // namespace arf
