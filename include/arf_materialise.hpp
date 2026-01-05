@@ -15,6 +15,8 @@
 #include "arf_core.hpp"
 #include "arf_parser.hpp"
 #include "arf_document.hpp"
+#include <array>
+#include <ranges>
 #include <unordered_map>
 
 #include <iostream>
@@ -27,7 +29,10 @@ namespace arf
                     
     struct materialiser_options
     {
-        size_t max_category_depth = 64;
+        size_t max_category_depth {64};
+    //--Debug options
+        bool echo_lines  {false}; // prints each CST parser event to be handled
+        bool echo_errors {false}; // prints each logged error 
     };    
 
     enum class semantic_error_kind
@@ -40,11 +45,31 @@ namespace arf
         invalid_array_element, 
         column_arity_mismatch,
         duplicate_key,
+        invalid_subcategory,
         invalid_category_open,
         invalid_category_close,
         depth_exceeded,
     // warnings
         date_unsupported,
+        __LAST
+    };
+
+    constexpr std::array<std::string_view, static_cast<size_t>(semantic_error_kind::__LAST)> 
+    error_string =
+    {
+        "unknown type",
+        "type mismatch",
+        "declared type mismatch",
+        "invalid literal",
+        "invalid declared type",
+        "invalid array element,",
+        "column arity mismatch",
+        "duplicate key",
+        "invalid subcategory",
+        "invalid category open",
+        "invalid category close",
+        "depth exceeded",
+        "date unsupported",
     };
 
     using material_context = context<document, semantic_error_kind>;
@@ -78,12 +103,28 @@ namespace arf
         std::optional<table_id>  active_table_;
         size_t                   key_index_     {0};
 
+        // Materialisation can break the direct 
+        // correspondence between CST events and
+        // node IDs; so they must be mapped. 
+        // nullopt means: resolve dynamically to current stack top
+        std::vector<std::optional<category_id>> cst_to_doc_category_;
+
+
         // Helpers
         void handle_category_open(const parse_event& ev);
         void handle_category_close(const parse_event& ev);
         void handle_table_header(const parse_event& ev);
         void handle_table_row(const parse_event& ev);        
-        void handle_key(parse_event const& ev);        
+        void handle_key(parse_event const& ev);
+
+        void log_err( semantic_error_kind what, std::string_view msg, source_location loc )
+        {
+            out_.errors.push_back({ what, loc, std::string(msg) });
+            if (opts_.echo_errors)
+                std::cout << "Error #" << std::to_string(static_cast<int>(what)) 
+                        << ": " << error_string[static_cast<size_t>(what)] 
+                        << ". Message: " << msg << "\n";
+        }
 
         bool row_is_valid(document::row_node const& r);
         bool table_is_valid(document::table_node const& t, document const& doc);
@@ -540,6 +581,7 @@ namespace
         , opts_(opts)
         , active_table_(std::nullopt)
     {
+        cst_to_doc_category_.resize(cst_.categories.size());
         category_id root = doc_.create_root();
         stack_.push_back(root);
     }
@@ -551,26 +593,32 @@ namespace
             switch (ev.kind)
             {
                 case parse_event_kind::category_open:
+                    if (opts_.echo_lines) std::cout << "event: category_open = " << ev.text << std::endl;
                     handle_category_open(ev);
                     break;
 
                 case parse_event_kind::category_close:
+                    if (opts_.echo_lines) std::cout << "event: category_close = " << ev.text << std::endl;
                     handle_category_close(ev);
                     break;
 
                 case parse_event_kind::table_header:
+                    if (opts_.echo_lines) std::cout << "event: table_header = " << ev.text << std::endl;
                     handle_table_header(ev);
                     break;
 
                 case parse_event_kind::table_row:
+                    if (opts_.echo_lines) std::cout << "event: table_row = " << ev.text << std::endl;
                     handle_table_row(ev);
                     break;
 
                 case parse_event_kind::key_value:
+                    if (opts_.echo_lines) std::cout << "event: key_value = " << ev.text << std::endl;
                     handle_key(ev);
                     break;
 
                 default:
+                    if (opts_.echo_lines) std::cout << "unknown event: skipped = " << ev.text << std::endl;
                     break;
             }
         }
@@ -589,45 +637,52 @@ namespace
 
     inline void materialiser::handle_category_open(const parse_event& ev)
     {
+        auto cid = std::get<category_id>(ev.target);
+
         auto sv = std::string_view(ev.text);
         bool is_subcat = sv.starts_with(":");
         bool is_topcat = sv.ends_with(":");
 
-        if (is_subcat && is_topcat)
+        // Default: unresolved (invalid category)
+        cst_to_doc_category_[cid.val] = std::nullopt;
+
+        auto fail = [&](semantic_error_kind k, const char* msg)
         {
-            out_.errors.push_back({
-                semantic_error_kind::invalid_category_open,
-                ev.loc,
-                "category can't be both top-level and subcategory"
-            });
-            return;
-        }
+            log_err(k, msg, ev.loc);
+            active_table_.reset();
+        };
+
+        if (is_subcat && is_topcat)
+            return fail(semantic_error_kind::invalid_category_open,
+                        "category can't be both top-level and subcategory");
+
+        if (is_subcat && stack_.size() <= 1)
+            return fail(semantic_error_kind::invalid_subcategory,
+                        "subcategory must not be declared in the root");
+
+        if (opts_.max_category_depth != 0 && stack_.size() - 1 >= opts_.max_category_depth)
+            return fail(semantic_error_kind::depth_exceeded,
+                        "maximum category depth exceeded");
+
+        // Valid category from here on
 
         if (is_topcat)
         {
-            // close all open categories except root
             while (stack_.size() > 1)
                 stack_.pop_back();
         }
 
-        if (opts_.max_category_depth != 0 && stack_.size() >= opts_.max_category_depth)
-        {
-            out_.errors.push_back({
-                semantic_error_kind::depth_exceeded,
-                ev.loc,
-                "maximum category depth exceeded"
-            });
-            return;
-        }
+        active_table_.reset();
 
-        active_table_.reset();        
-        auto cid = std::get<category_id>(ev.target);
         const auto& cst_cat = cst_.categories[cid.val];
+        category_id parent  = stack_.back();
 
-        category_id parent = stack_.back();
+        category_id doc_id = doc_.create_category(cid, cst_cat.name, parent);
+        if (opts_.echo_lines) std::cout << "created category id: " << cid.val << ", name: " << cst_cat.name << std::endl;
+        doc_.categories_.back().semantic = semantic_state::valid;
 
-        doc_.create_category(cid, cst_cat.name, parent);
-        stack_.push_back(cid);
+        cst_to_doc_category_[cid.val] = doc_id;
+        stack_.push_back(doc_id);
     }
 
     inline void materialiser::handle_category_close(const parse_event& ev)
@@ -637,13 +692,19 @@ namespace
         {
             auto name = std::get<unresolved_name>(ev.target);
 
+            if (stack_.size() <= 1)
+            {
+                log_err(semantic_error_kind::invalid_category_close,
+                    "attempt to close category that is not open",
+                    ev.loc );
+                return;
+            }
+
             if (name.empty())
             {
-                out_.errors.push_back({
-                    semantic_error_kind::invalid_category_close,
-                    ev.loc,
-                    "empty category name in close"
-                });
+                log_err( semantic_error_kind::invalid_category_close,
+                         "empty category name in close",
+                         ev.loc);
                 return;
             }
 
@@ -652,17 +713,19 @@ namespace
                 stack_.rend(),
                 [&](category_id cid)
                 {
-                    return doc_.categories_[cid.val].name == name;
+                    decltype(document::categories_)::iterator it;
+                    it = std::ranges::find_if(doc_.categories_, [cid](document::category_node const &cat){return cat.id.val == cid.val;});
+                    if (it != doc_.categories_.end())
+                        return it->name == name;
+                    return false;
                 }
             );
 
             if (it == stack_.rend() || (*it).val == stack_.front().val)
             {
-                out_.errors.push_back({
-                    semantic_error_kind::invalid_category_close,
-                    ev.loc,
-                    "attempt to close category that is not open"
-                });
+                log_err(semantic_error_kind::invalid_category_close,
+                        "attempt to close category that is not open",
+                        ev.loc);
                 return;
             }
 
@@ -679,11 +742,9 @@ namespace
         {
             if (stack_.size() <= 1)
             {
-                out_.errors.push_back({
-                    semantic_error_kind::invalid_category_close,
-                    ev.loc,
-                    "attempt to close root category"
-                });
+                log_err( semantic_error_kind::invalid_category_close,
+                         "attempt to close root category",
+                         ev.loc);
                 return;
             }
 
@@ -691,11 +752,9 @@ namespace
 
             if (stack_.back() != closing)
             {
-                out_.errors.push_back({
-                    semantic_error_kind::invalid_category_close,
-                    ev.loc,
-                    "category close does not match open scope"
-                });
+                log_err( semantic_error_kind::invalid_category_close,
+                         "category close does not match open scope",
+                         ev.loc );
                 return;
             }
 
@@ -858,30 +917,32 @@ namespace
 
     inline void materialiser::handle_key(parse_event const&)
     {
-        const cst_key& cst = cst_.keys.at(key_index_++);
+        const key_id cst_idx = key_id{key_index_++};
+        const cst_key& cst = cst_.keys.at(cst_idx);
 
         document::key_node k;
-        k.name        = cst.name;
-        k.owner       = cst.owner;
+        k.id    = cst_idx;
+        k.name  = cst.name;
+        k.owner = stack_.back(); 
+
         k.type_source = cst.declared_type
                             ? type_ascription::declared
                             : type_ascription::tacit;
 
         value_type target = value_type::unresolved;
 
-        // 1. Declared type (if any)
+        // declared type handling (unchanged)
         if (cst.declared_type)
         {
             auto t = parse_declared_type(*cst.declared_type, out_);
             if (!t)
             {
-                out_.errors.push_back({
+                log_err(
                     semantic_error_kind::invalid_declared_type,
-                    cst.loc,
-                    "unknown declared key type"
-                });
+                    "unknown declared key type",
+                    cst.loc
+                );
 
-                // Collapse declared type
                 target        = value_type::string;
                 k.type_source = type_ascription::tacit;
                 k.semantic    = semantic_state::invalid;
@@ -892,35 +953,36 @@ namespace
             }
         }
 
-        // 2. Coerce value (never drops the key)
+        typed_value tv;
+
         const bool target_is_array =
             target == value_type::string_array ||
             target == value_type::int_array ||
             target == value_type::float_array;
 
-        typed_value tv;
-
         if (target_is_array)
         {
-            tv = coerce_array(cst.literal, target, value_locus::key_value, cst.loc, out_);
+            tv = coerce_array(
+                cst.literal, target,
+                value_locus::key_value,
+                cst.loc, out_
+            );
         }
         else
         {
-            tv = coerce_key_value(cst.literal, target, cst.loc, out_);
+            tv = coerce_key_value(
+                cst.literal, target,
+                cst.loc, out_
+            );
         }
 
-        // 3. Local invalidity
         if (tv.semantic == semantic_state::invalid)
             k.semantic = semantic_state::invalid;
 
-        // contamination if array contains invalid elements
         if (tv.contamination == contamination_state::contaminated)
-        {
             k.contamination = contamination_state::contaminated;
-        }        
         else if (target_is_array)
         {
-            // array elements can contaminate without invalidating the key
             for (auto const& elem : std::get<std::vector<typed_value>>(tv.val))
             {
                 if (elem.semantic == semantic_state::invalid ||
@@ -932,20 +994,21 @@ namespace
             }
         }
 
-        // 4. Finalise type
         k.type  = tv.type;
         k.value = std::move(tv);
 
         key_id id{ doc_.keys_.size() };
         doc_.keys_.emplace_back(std::move(k));
-
-        auto & key = doc_.keys_[id.val];
-        auto & cat = doc_.categories_[cst.owner.val];
+        auto& key = doc_.keys_[id.val];
+        
+        auto it = std::ranges::find_if(doc_.categories_, [&](auto const & c){return c.id.val == key.owner.val;});
+        assert (it != doc_.categories_.end() && "Category doesn't exist");
+        auto & cat = *it;
 
         cat.keys.emplace_back(id);
 
-        if (key.contamination == contamination_state::contaminated ||
-            key.semantic == semantic_state::invalid)
+        if (key.semantic == semantic_state::invalid ||
+            key.contamination == contamination_state::contaminated)
         {
             cat.contamination = contamination_state::contaminated;
         }

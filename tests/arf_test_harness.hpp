@@ -38,6 +38,14 @@ namespace arf::tests
             std::cout << "\n";                             \
         } while (0)
 
+    #define SUBCAT(msg)                                                     \
+        do                                                                  \
+        {                                                                   \
+            std::string str(msg);                                           \
+            std::transform(str.begin(), str.end(), str.begin(), ::toupper); \
+            std::cout << "-------" << str << "--------------\n";            \
+        }                                                                   \
+        while (0)
 }
 
 #endif

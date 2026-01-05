@@ -9,6 +9,7 @@
 #include "arf_test_harness.hpp"
 #include "../include/arf.hpp"
 
+#include <ranges>
 namespace arf::tests
 {
 
@@ -58,7 +59,7 @@ static bool type_column_declared_mismatch_collapses()
     return true;
 }
 
-static bool scope_named_collapse_unwinds_all()
+static bool subcategory_under_root_is_error()
 {
     constexpr std::string_view src =
         ":a\n"
@@ -67,15 +68,49 @@ static bool scope_named_collapse_unwinds_all()
         "/a\n";
 
     auto ctx = load(src);
-    EXPECT(!ctx.has_errors(), "error emitted");
-    EXPECT(ctx.document.category_count() == 4, "incorrect arity"); // root + a + b + c
+    EXPECT(ctx.has_errors(), "incorrectly accepted subcategory in root");
+    EXPECT(is_material_error(ctx.errors.front().kind), "error not of material type");
+    EXPECT(get_material_error(ctx.errors.front().kind) == semantic_error_kind::invalid_subcategory, "wrong error code");
+    return true;
+}
+
+static bool scope_named_collapse_unwinds_all()
+{
+    constexpr std::string_view src =
+        "foo:\n"
+        "  :a\n"
+        "    :b\n"
+        "      :c\n"
+        "  /a\n"
+        "  :d\n";
+
+    auto ctx = load(src);
+    EXPECT(!ctx.has_errors(), "document must parse without errors");
+
+    // root + foo + a + b + c + d
+    EXPECT(ctx.document.category_count() == 6, "incorrect category count");
+
+    auto foo = ctx.document.category(category_id{1});
+    auto a   = ctx.document.category(category_id{2});
+    auto b   = ctx.document.category(category_id{3});
+    auto c   = ctx.document.category(category_id{4});
+    auto d   = ctx.document.category(category_id{5});
+
+    EXPECT(foo->parent()->is_root(), "foo must attach to root");
+    EXPECT(a->parent()->name() == "foo", "a must attach to foo");
+    EXPECT(b->parent()->name() == "a",   "b must attach to a");
+    EXPECT(c->parent()->name() == "b",   "c must attach to b");
+
+    // Critical assertion: d must attach to foo, not a/b/c
+    EXPECT(d->parent()->name() == "foo", "named close must unwind to foo scope");
+
     return true;
 }
 
 static bool scope_invalid_named_close_is_error()
 {
     constexpr std::string_view src =
-        ":a\n"
+        "a:\n"
         "/b\n";
 
     auto ctx = load(src);
@@ -92,7 +127,7 @@ static bool scope_max_depth_enforced()
     opts.max_category_depth = 2;
 
     constexpr std::string_view src =
-        ":a\n"
+        "a:\n"
         "  :b\n"
         "    :c\n";
 
@@ -340,6 +375,271 @@ static bool array_empty_elements_are_missing_not_contaminating()
     return true;
 }
 
+static bool scope_named_close_of_non_ancestor_is_error()
+{
+    constexpr std::string_view src =
+        "a:\n"
+        "  :b\n"
+        "c:\n"
+        "  /b\n";
+
+    auto ctx = load(src);
+    EXPECT(ctx.has_errors(), "closing non-ancestor category must be an error");
+
+    EXPECT(is_material_error(ctx.errors.front().kind), "wrong error category");
+    EXPECT(get_material_error(ctx.errors.front().kind) == semantic_error_kind::invalid_category_close, "wrong error code");
+
+    return true;
+}
+
+static bool scope_key_after_named_close_binds_upwards()
+{
+    constexpr std::string_view src = 
+        R"(a:
+        :b
+            x = 1
+        /b
+        y = 2)";
+
+    auto ctx = load(src);
+    EXPECT(!ctx.has_errors(), "error was emitted");
+    
+    auto x = ctx.document.key(key_id{0});
+    auto y = ctx.document.key(key_id{1});
+
+    EXPECT(x.has_value(), "x must exist");
+    EXPECT(x->owner().name() == "b", "x must be owned by b");
+
+    EXPECT(y.has_value(), "y must exist");
+    EXPECT(y->owner().name() == "a", "y must be owned by a");
+
+    return true;
+}
+
+static bool scope_named_collapse_resets_key_and_table_scope()
+{
+    constexpr std::string_view src =
+        "a:\n"
+        "  :b\n"
+        "    x = 1\n"
+        "    # t\n"
+        "      1\n"
+        "  /b\n"
+        "  y = 2\n"
+        "  # u\n"
+        "    3\n";
+
+    auto doc = load(src);
+    EXPECT(!doc.has_errors(), "document must parse without errors");
+
+    EXPECT(doc->key_count() == 2, "expected two keys");
+    EXPECT(doc->table_count() == 2, "expected two tables");
+
+    auto x = doc->key(key_id{0});
+    auto y = doc->key(key_id{1});
+
+    EXPECT(x->owner().name() == "b", "x must attach to b");
+    EXPECT(y->owner().name() == "a", "y must attach to a after collapse");
+
+    auto t = doc->table(table_id{0});
+    auto u = doc->table(table_id{1});
+
+    EXPECT(t->owner().name() == "b", "table t must attach to b");
+    EXPECT(u->owner().name() == "a", "table u must attach to a after collapse");
+
+    return true;
+}
+
+static bool failed_category_open_leaves_scope_unchanged()
+{
+    constexpr std::string_view src = 
+        R"(:b
+            x = 1)";
+
+    auto doc = load(src);
+    EXPECT(doc.has_errors(), "error should be emitted");
+
+    EXPECT(doc->category_count() == 1, "there should only be the root category");
+    EXPECT(doc->key_count() == 1, "the key should survive an invalid category");
+    auto x = doc->key(key_id{0});
+    EXPECT(x->owner().is_root(), "x should not attach to invalid category");
+
+    return true;
+}
+
+static bool error_then_continue_invalid_key_does_not_block_following_keys()
+{
+    constexpr std::string_view src =
+        "a:\n"
+        "  x:int = foo\n"   // invalid int
+        "  y = 42\n";       // valid key
+
+    auto ctx = load(src);
+
+    EXPECT(ctx.has_errors(), "invalid key should produce an error");
+
+    auto key_x = ctx.document.key(key_id{0});
+    auto key_y = ctx.document.key(key_id{1});
+
+    EXPECT(key_x.has_value(), "invalid key must still be materialised");
+    EXPECT(!key_x->is_locally_valid(), "x must be locally invalid");
+
+    EXPECT(key_y.has_value(), "subsequent key must exist");
+    EXPECT(key_y->is_locally_valid(), "subsequent valid key must remain valid");
+    EXPECT(key_y->owner().name() == "a", "key y must attach to category a");
+
+    return true;
+}
+
+static bool error_then_continue_after_invalid_subcategory_recovers_scope()
+{
+    constexpr std::string_view src =
+        ":illegal\n"
+        "d:\n"
+        "  x = 1\n";
+
+    auto ctx = load(src);
+
+    EXPECT(ctx.has_errors(), "invalid subcategory not flagged");
+    EXPECT(is_material_error(ctx.errors.front().kind), "wrong error class");
+    EXPECT(ctx.document.category_count() == 2, "unexpected category count"); // root + d
+    auto d_id = ctx.document.categories().back().id();
+    auto const& d = ctx.document.category(d_id);
+    EXPECT(d.has_value(), "category should be accessible");
+    EXPECT(d->name() == "d", "category d not created");
+    EXPECT(d->keys().size() == 1, "key did not bind to recovered scope");
+    EXPECT(ctx.document.key(d->keys().front())->name() == "x", "key x not owned by d");
+
+    return true;
+}
+
+static bool invalid_subcategory_then_named_close_is_safe()
+{
+    constexpr std::string_view src =
+        "/a\n"
+        ":illegal\n"
+        "d:\n"
+        "  x = 1\n";
+
+    auto ctx = load(src);
+
+    EXPECT(ctx.has_errors(), "errors expected");
+    EXPECT(ctx.document.category_count() == 2, "unexpected category count");
+
+    auto d_id = ctx.document.categories().back().id();
+    auto const& d = ctx.document.category(d_id);
+    EXPECT(d.has_value(), "category should be accessible");
+    EXPECT(d->name() == "d", "category d missing after recovery");
+    EXPECT(d->keys().size() == 1, "key not attached after recovery");
+
+    return true;
+}
+
+static bool max_category_depth_allows_exact_limit()
+{
+    materialiser_options opts;
+    opts.max_category_depth = 3;
+
+    constexpr std::string_view src =
+        "a:\n"
+        "  :b\n"
+        "    :c\n";
+
+    auto ctx = load(src, opts);
+
+    EXPECT(!ctx.has_errors(), "exact max depth incorrectly rejected");
+    EXPECT(ctx.document.category_count() == 4, "incorrect category count");
+
+    return true;
+}
+
+static bool max_category_depth_exceeded_recovers_scope()
+{
+    materialiser_options opts;
+    opts.max_category_depth = 3;
+
+    // category d is too deep:
+    constexpr std::string_view src =
+        "a:\n"
+        "  :b\n"
+        "    :c\n"
+        "      :d\n" 
+        "    x = 1\n";
+
+    auto ctx = load(src, opts);
+
+    EXPECT(ctx.has_errors(), "depth error not reported");
+
+    // x must belong to c, not crash or attach to nonsense
+    auto const& c = ctx.document.categories().at(3);
+    EXPECT(c.keys().size() == 1, "scope not recovered after depth error");
+
+    return true;
+}
+
+static bool category_ids_are_not_dense_indices()
+{
+    constexpr std::string_view src =
+        ":illegal\n"
+        "a:\n"
+        "  x = 1\n";
+
+    auto ctx = load(src);
+    EXPECT(ctx.has_errors(), "expected invalid subcategory");
+
+    auto doc = ctx.document;
+    EXPECT(doc.category_count() == 2, "root + a");
+
+    auto cats = doc.categories();
+    auto it = std::ranges::find_if(cats, [](auto & cat_view){return cat_view.name() == "a";});
+    EXPECT(it != cats.end(), "a must exist");
+    auto & a = *it;
+
+    auto a2 = doc.category(a.id());
+    EXPECT(a2.has_value(), "a must be retrievable by ID");
+    EXPECT(a2->id() == a.id(),"category id must match stored id");
+
+    return true;
+}
+
+static bool scope_stack_is_never_empty()
+{
+    constexpr std::string_view src =
+        "/a\n"
+        "/b\n";
+
+    auto ctx = load(src);
+    EXPECT(ctx.has_errors(), "invalid closes expected");
+
+    EXPECT(ctx.document.root().has_value(),
+           "root must survive any invalid closes");
+
+    return true;
+}
+
+static bool no_key_owned_by_nonexistent_category()
+{
+    constexpr std::string_view src =
+        ":illegal\n"
+        "x = 1\n";
+
+    auto ctx = load(src);
+    auto& doc = ctx.document;
+
+    auto cats = doc.categories();
+    auto keys = doc.keys();
+
+    for (auto const& k : keys)
+    {
+        auto it = std::ranges::find_if(cats,
+            [&](auto const& c){ return c.id() == k.owner().id(); });
+
+        EXPECT(it != cats.end(),
+               "key owner must exist in document categories");
+    }
+
+    return true;
+}
 
 //----------------------------------------------------------------------------
 
@@ -357,11 +657,18 @@ Policies / invariants
 • Invalid named closes are errors
 • Maximum nesting depth is enforced
 */    
+SUBCAT("Scope");
     RUN_TEST(scope_keys_are_category_local);
     RUN_TEST(scope_duplicate_keys_rejected);
+    RUN_TEST(subcategory_under_root_is_error);
+    RUN_TEST(scope_key_after_named_close_binds_upwards);
     RUN_TEST(scope_named_collapse_unwinds_all);
     RUN_TEST(scope_invalid_named_close_is_error);
+    RUN_TEST(scope_named_close_of_non_ancestor_is_error);
+    RUN_TEST(scope_named_collapse_resets_key_and_table_scope);
+    RUN_TEST(max_category_depth_allows_exact_limit);
     RUN_TEST(scope_max_depth_enforced);
+    RUN_TEST(failed_category_open_leaves_scope_unchanged);
 
 /*
 2. Declared type handling (keys & columns)
@@ -373,6 +680,7 @@ Policies / invariants
 • On mismatch, values collapse to string
 • Collapsing marks local invalidity
 */    
+SUBCAT("Type declaration");
     RUN_TEST(type_key_declared_mismatch_collapses);
     RUN_TEST(type_key_invalid_declaration_is_error);
     RUN_TEST(type_column_declared_mismatch_collapses);
@@ -395,6 +703,7 @@ Policies / invariants
 • Containers remain locally valid if structurally intact
 • Structural integrity is never inferred from child semantics
 */    
+SUBCAT("Invalidity and contamination");
     RUN_TEST(semantic_invalid_key_flagged);
     RUN_TEST(semantic_invalid_column_flagged);
     RUN_TEST(semantic_invalid_cell_flagged);  
@@ -413,12 +722,24 @@ Policies / invariants
 • Arrays without declared type collapse to string
 • Trailing delimiters create empty elements
 */    
+SUBCAT("Arrays");
     RUN_TEST(array_key_all_elements_valid);
     RUN_TEST(array_invalid_element_contaminates_key);
     RUN_TEST(array_untyped_collapses_to_string);
     RUN_TEST(array_table_cells_valid);
     RUN_TEST(array_invalid_element_contaminates_row);
     RUN_TEST(array_empty_elements_are_missing_not_contaminating);
+
+SUBCAT("Correctness after error");
+    RUN_TEST(error_then_continue_invalid_key_does_not_block_following_keys);
+    RUN_TEST(error_then_continue_after_invalid_subcategory_recovers_scope);
+    RUN_TEST(invalid_subcategory_then_named_close_is_safe);
+    RUN_TEST(max_category_depth_exceeded_recovers_scope);
+
+SUBCAT("Extras");
+    RUN_TEST(category_ids_are_not_dense_indices);
+    RUN_TEST(scope_stack_is_never_empty);
+    RUN_TEST(no_key_owned_by_nonexistent_category);
 }
 
 }

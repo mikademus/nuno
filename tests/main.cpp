@@ -20,7 +20,7 @@ void run_tests( std::string suite_name, void(*pf_tests)() )
     else first = false;
 
     std::cout << suite_name << '\n';
-    std::cout << std::string(suite_name.length(), '-') << '\n';
+    std::cout << std::string(suite_name.length(), '=') << '\n';
     pf_tests();
 }
 
