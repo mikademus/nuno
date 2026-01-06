@@ -2,6 +2,7 @@
 #include "arf_parser_tests.hpp"
 #include "arf_materialiser_tests.hpp"
 #include "arf_document_structure_tests.hpp"
+#include "arf_reflection_tests.hpp"
 //#include "arf_value_semantics_tests.hpp"
 #include <cstring>
 
@@ -31,6 +32,7 @@ int main()
     run_tests("Parser pass", run_parser_tests);
     run_tests("Materialiser pass", run_materialiser_tests);
     run_tests("Document structure", run_document_structure_tests);
+    run_tests("Reflection", run_reflection_tests);
     //run_value_semantics_tests();
 
     // unified reporting    

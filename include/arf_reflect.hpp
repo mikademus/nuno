@@ -6,6 +6,14 @@
 // This reflection surface is *value-centred* and *address-oriented*.
 // There are no node identities, no row indices, no cell objects.
 // Only values exist. Everything else is an address that can reach them.
+//
+// Address model:
+//
+// * An address is a sequence of navigation steps.
+// * The empty address refers to the document root.
+// * The root is implicit and has no name.
+// * Categories are always resolved relative to the current category.
+// * Reflection never exposes a synthetic "__root__" category.
 
 #ifndef ARF_REFLECT_HPP
 #define ARF_REFLECT_HPP
@@ -19,12 +27,6 @@
 
 namespace arf::reflect
 {
-    //============================================================
-    // Forward declarations
-    //============================================================
-
-    struct context;
-
     //============================================================
     // Address steps
     //============================================================
@@ -41,8 +43,7 @@ namespace arf::reflect
 
     struct table_step
     {
-        // tables are anonymous; resolved by position within category
-        size_t ordinal;
+        table_id id;
     };
 
     struct row_step
@@ -71,35 +72,29 @@ namespace arf::reflect
 
     using address = std::vector<address_step>;
 
-
     //============================================================
     // Address builder helpers
-    //------------------------------------------------------------
-    // Usage:
-    //     address addr;
-    //     addr / category_step{"graphics"} / key_step{"resolution"};    
     //============================================================
 
-    inline address& operator/(address& addr, category_step s) 
-    { 
-        addr.push_back(s); 
-        return addr; 
+    inline address& operator/(address& addr, category_step s)
+    {
+        addr.push_back(s);
+        return addr;
     }
-    
-    inline address& operator/(address& addr, key_step s) 
-    { 
-        addr.push_back(s); 
-        return addr; 
+
+    inline address& operator/(address& addr, key_step s)
+    {
+        addr.push_back(s);
+        return addr;
     }
-        
+
     //============================================================
     // Evaluation context
     //============================================================
 
     struct context
     {
-        const document* doc      {nullptr};
-        category_id     category {invalid_id<category_tag>()};
+        const document* doc = nullptr;
 
         std::optional<document::category_view> category;
         std::optional<document::table_view>    table;
@@ -122,15 +117,7 @@ namespace arf::reflect
     inline bool apply(context& ctx, const category_step& s)
     {
         if (!ctx.category)
-        {
-            auto cat = ctx.doc->category(s.name);
-            if (!cat)
-                return false;
-
-            ctx.category = *cat;
-            ctx.reset_value();
-            return true;
-        }
+            return false;
 
         auto child = ctx.category->child(s.name);
         if (!child)
@@ -159,11 +146,27 @@ namespace arf::reflect
         if (!ctx.category)
             return false;
 
+        // Verify table belongs to this category
         auto tables = ctx.category->tables();
-        if (s.ordinal >= tables.size())
+        bool found = false;
+
+        for (auto tid : tables)
+        {
+            if (tid == s.id)
+            {
+                found = true;
+                break;
+            }
+        }
+
+        if (!found)
             return false;
 
-        ctx.table = tables[s.ordinal];
+        auto table = ctx.doc->table(s.id);
+        if (!table)
+            return false;
+
+        ctx.table = *table;
         ctx.reset_value();
         return true;
     }
@@ -187,15 +190,15 @@ namespace arf::reflect
         if (!ctx.table || !ctx.row)
             return false;
 
-        auto row = ctx.doc->row(*ctx.row);
-        if (!row)
+        auto row_view = ctx.doc->row(*ctx.row);
+        if (!row_view)
             return false;
 
         auto col_index = ctx.table->column_index(s.name);
         if (!col_index)
             return false;
 
-        const auto& cells = row->node->cells;
+        const auto& cells = row_view->node->cells;
         if (*col_index >= cells.size())
             return false;
 
