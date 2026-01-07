@@ -50,11 +50,13 @@ namespace arf
     struct category_tag;
     struct table_tag;
     struct table_row_tag;
+    struct table_column_tag;
     struct key_tag;
 
     using category_id   = id<category_tag>;
     using table_id      = id<table_tag>;
     using table_row_id  = id<table_row_tag>;
+    using column_id     = id<table_column_tag>;
     using key_id        = id<key_tag>;
 
 //========================================================================
@@ -134,6 +136,7 @@ namespace arf
 
     struct column
     {
+        column_id       id;
         std::string     name;
         value_type      type;
         type_ascription type_source;

@@ -101,6 +101,7 @@ namespace arf
             category_id  next_category_id {0};
             table_id     next_table_id {0};
             table_row_id next_row_id {0};
+            column_id    next_column_id {0};
 
             // Active context
             std::vector<category_id> category_stack;
@@ -370,6 +371,7 @@ namespace arf
             for (auto& c : cols)
             {
                 column col;
+                col.id = next_column_id++;
                 auto pos = c.find(':');
                 if (pos != std::string::npos)
                 {

@@ -772,12 +772,18 @@ namespace
         document::table_node tbl;
         tbl.id      = tid;
         tbl.owner   = stack_.back();
-        tbl.columns = cst_tbl.columns;
         tbl.rows.clear();
 
-        // Resolve declared column types BEFORE moving
-        for (auto& col : tbl.columns)
+        for (const auto& cst_col : cst_tbl.columns)
         {
+            document::column_node col_;
+            col_.col   = cst_col;
+            col_.table = tid;
+            col_.owner = tbl.owner;
+
+            column & col = col_.col;
+
+            // Resolve declared column types early
             if (col.type_source == type_ascription::declared)
             {
                 auto const & s = col.declared_type.value();
@@ -808,14 +814,20 @@ namespace
             {
                 col.type = value_type::unresolved;
             }
+
+            doc_.columns_.push_back(col_);
+            tbl.columns.push_back(col_.col.id);
         }
 
         // Store the table
         doc_.tables_.push_back(std::move(tbl));
 
         // Attach table to owning category
-        auto cat_id = stack_.back();
-        doc_.categories_[cat_id.val].tables.push_back(tid);
+        category_id cat_id = stack_.back();
+
+        auto it = doc_.find_node_by_id(doc_.categories_, cat_id);
+        assert (it != doc_.categories_.end());
+        it->tables.push_back(tid);
 
         active_table_ = tid;
     }
@@ -850,16 +862,22 @@ namespace
         row.cells.reserve(tbl.columns.size());
 
         // Column invalidity contaminates the row
-        for (auto const& col : tbl.columns)
-            if (col.semantic == semantic_state::invalid)
+        for (auto const& col_id : tbl.columns)
+        {
+            auto it = doc_.find_node_by_id(doc_.columns_, col_id);
+            assert (it != doc_.columns_.end());
+            if (it->col.semantic == semantic_state::invalid)
             {
                 row.contamination = contamination_state::contaminated;
                 break;
             }
+        }
 
         for (size_t i = 0; i < tbl.columns.size(); ++i)
         {
-            auto& col = tbl.columns[i];
+            auto it = doc_.find_node_by_id(doc_.columns_, tbl.columns[i]);
+            assert (it != doc_.columns_.end());
+            auto & col = it->col;
 
             std::string_view literal =
                 (i < cst_row.cells.size())
@@ -884,9 +902,11 @@ namespace
         }
 
         // Column invalidity contaminates the row
-        for (auto const& col : tbl.columns)
+        for (auto const& col_id : tbl.columns)
         {
-            if (col.semantic == semantic_state::invalid)
+            auto it = doc_.find_node_by_id(doc_.columns_, col_id);
+            assert (it != doc_.columns_.end());
+            if (it->col.semantic == semantic_state::invalid)
             {
                 row.contamination = contamination_state::contaminated;
                 break;
@@ -1026,8 +1046,15 @@ namespace
     inline bool materialiser::table_is_valid(document::table_node const& t, document const& doc)
     {
         for (auto const& c : t.columns)
-            if (c.semantic == semantic_state::invalid)
+        {
+            auto it = doc_.find_node_by_id(doc_.columns_, c);
+            
+            if (it == doc_.columns_.end())
                 return false;
+
+            if (it->col.semantic == semantic_state::invalid)
+                return false;
+        }
 
         for (auto rid : t.rows)
             if (!row_is_valid(doc.rows_[rid.val]))

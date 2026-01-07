@@ -16,7 +16,10 @@
 
 namespace arf
 {
-    template<typename T> struct node_to_view;
+    namespace 
+    {
+        template<typename T> struct node_to_view;
+    }
 
     class document
     {
@@ -27,6 +30,7 @@ namespace arf
 
         struct category_view;
         struct table_view;
+        struct column_view;
         struct table_row_view;
         struct key_view;
 
@@ -53,6 +57,14 @@ namespace arf
         size_t table_count() const noexcept { return tables_.size(); }
         std::optional<table_view> table(table_id id) const noexcept;    
         std::vector<table_view>   tables() const noexcept;
+
+        //------------------------------------------------------------------------
+        // Column access
+        //------------------------------------------------------------------------
+
+        size_t column_count() const noexcept { return columns_.size(); }
+        std::optional<column_view> column(column_id id) const noexcept;
+        std::vector<column_view>   columns() const noexcept;
 
         //------------------------------------------------------------------------
         // Row access
@@ -86,6 +98,8 @@ namespace arf
         struct category_node
         {
             typedef category_id id_type;
+            id_type _id() const noexcept { return id; }
+            std::string_view _name() const noexcept { return name; }
             
             category_id              id;
             std::string              name;
@@ -100,18 +114,35 @@ namespace arf
         struct table_node
         {
             typedef table_id id_type;
+            id_type _id() const noexcept { return id; }
+            std::string_view _name() const noexcept = delete;
             
-            table_id                  id;
-            category_id               owner;
-            std::vector<column>       columns;
-            std::vector<table_row_id> rows;   // authored order
-            semantic_state            semantic      {semantic_state::valid};
-            contamination_state       contamination {contamination_state::clean};
+            table_id                    id;
+            category_id                 owner;
+            // std::vector<struct column>  columns;
+            std::vector<column_id>      columns;
+            std::vector<table_row_id>   rows;   // authored order
+            semantic_state              semantic      {semantic_state::valid};
+            contamination_state         contamination {contamination_state::clean};
+        };
+
+        struct column_node
+        {
+            typedef column_id id_type;
+            id_type _id() const noexcept { return col.id; }
+            std::string_view _name() const noexcept { return col.name; }
+            
+            struct column   col;
+            table_id        table;
+            category_id     owner;
+
         };
 
         struct row_node
         {
             typedef table_row_id id_type;
+            id_type _id() const noexcept { return id; }
+            std::string_view _name() const noexcept = delete;
             
             table_row_id             id;
             table_id                 table;
@@ -124,6 +155,8 @@ namespace arf
         struct key_node
         {
             typedef key_id id_type;
+            id_type _id() const noexcept { return id; }
+            std::string_view _name() const noexcept { return name; }
             
             key_id               id;
             std::string          name;
@@ -137,11 +170,16 @@ namespace arf
 
         std::vector<category_node> categories_;
         std::vector<table_node>    tables_;
+        std::vector<column_node>   columns_;
         std::vector<row_node>      rows_;
         std::vector<key_node>      keys_;
 
         bool row_is_valid(document::row_node const& r);
         bool table_is_valid(document::table_node const& t);
+
+        template<typename T>
+        typename std::vector<T>::iterator 
+        find_node_by_id(std::vector<T> & cont, typename T::id_type id) noexcept;
 
         template<typename T>
         typename std::vector<T>::const_iterator 
@@ -194,14 +232,28 @@ namespace arf
         const table_node* node;
 
         table_id id() const noexcept { return node->id; }
-        std::span<const column> columns() const noexcept { return node->columns; }
+        std::span<const column_id> columns() const noexcept { return node->columns; }
         std::span<const table_row_id> rows() const noexcept { return node->rows; }
 
         category_view owner() const noexcept;
-        std::optional<size_t> column_index(std::string_view name) const noexcept;        
 
         bool is_locally_valid() const noexcept { return node->semantic == semantic_state::valid; }
         bool is_contaminated() const noexcept { return node->contamination == contamination_state::contaminated; }
+    };
+
+    struct document::column_view
+    {
+        const document*    doc;
+        const column_node* node;
+
+        column_id id() const noexcept { return node->col.id; }
+        std::string_view name() const noexcept { return node->col.name; }
+        value_type type() const noexcept { return node->col.type; }
+
+        table_view table() const noexcept;
+        category_view owner() const noexcept;
+
+        bool is_locally_valid() const noexcept { return node->col.semantic == semantic_state::valid; }
     };
 
     struct document::table_row_view
@@ -211,8 +263,10 @@ namespace arf
 
         table_row_id id() const noexcept { return node->id; }
         std::span<const typed_value> cells() const noexcept { return node->cells; }
+
         category_view owner() const noexcept;
         table_view table() const noexcept;
+
         bool is_locally_valid() const noexcept { return node->semantic == semantic_state::valid; }
         bool is_contaminated() const noexcept { return node->contamination == contamination_state::contaminated; }
     };
@@ -271,10 +325,14 @@ namespace arf
         return category_view{ this, &categories_.front() };
     }
 
-    template<> struct node_to_view<document::category_node> { typedef document::category_view   view_type; };
-    template<> struct node_to_view<document::table_node>    { typedef document::table_view      view_type; };
-    template<> struct node_to_view<document::row_node>      { typedef document::table_row_view  view_type; };
-    template<> struct node_to_view<document::key_node>      { typedef document::key_view        view_type; };
+    namespace
+    {
+        template<> struct node_to_view<document::category_node> { typedef document::category_view   view_type; };
+        template<> struct node_to_view<document::table_node>    { typedef document::table_view      view_type; };
+        template<> struct node_to_view<document::column_node>   { typedef document::column_view     view_type; };
+        template<> struct node_to_view<document::row_node>      { typedef document::table_row_view  view_type; };
+        template<> struct node_to_view<document::key_node>      { typedef document::key_view        view_type; };
+    }
 
     template<typename T>
     std::optional<typename node_to_view<T>::view_type>
@@ -290,7 +348,7 @@ namespace arf
     document::find_node_by_name(std::vector<T> const & cont, std::string_view name) const noexcept
     {
         return std::ranges::find_if(cont, [&name](auto const & node) {
-            return node.name == name;
+            return node._name() == name;
         });
     }
 
@@ -304,12 +362,13 @@ namespace arf
         return to_view(keys_, find_node_by_name(keys_, name));
     }
 
-    std::optional<size_t> document::table_view::column_index(std::string_view name) const noexcept
+    template<typename T>
+    typename std::vector<T>::iterator
+    document::find_node_by_id(std::vector<T> & cont, typename T::id_type id) noexcept
     {
-        auto & cols = node->columns;
-        if (auto it = doc->find_node_by_name(cols, name); it != cols.end())        
-                return std::distance(cols.begin(), it);
-        return std::nullopt;
+        return std::ranges::find_if(cont, [id](auto const & node) {
+            return node._id() == id;
+        });
     }
 
     template<typename T>
@@ -317,7 +376,7 @@ namespace arf
     document::find_node_by_id(std::vector<T> const & cont, typename T::id_type id) const noexcept
     {
         return std::ranges::find_if(cont, [id](auto const & node) {
-            return node.id == id;
+            return node._id() == id;
         });
     }
 
@@ -326,6 +385,9 @@ namespace arf
 
     inline std::optional<document::table_view>
     document::table(table_id id) const noexcept { return to_view(tables_, find_node_by_id(tables_, id)); }
+
+    inline std::optional<document::column_view> 
+    document::column(column_id id) const noexcept { return to_view(columns_, find_node_by_id(columns_, id)); }
 
     inline std::optional<document::table_row_view>
     document::row(table_row_id id) const noexcept { return to_view(rows_, find_node_by_id(rows_, id)); }
@@ -360,38 +422,29 @@ namespace arf
     }
 
     document::category_view document::table_view::owner()     const noexcept { return *doc->to_view(doc->categories_, doc->find_node_by_id(doc->categories_, node->owner)); }
+    document::category_view document::column_view::owner()    const noexcept { return *doc->to_view(doc->categories_, doc->find_node_by_id(doc->categories_, node->owner)); }
+    document::table_view    document::column_view::table()    const noexcept { return *doc->to_view(doc->tables_,     doc->find_node_by_id(doc->tables_,     node->table)); }
     document::category_view document::table_row_view::owner() const noexcept { return *doc->to_view(doc->categories_, doc->find_node_by_id(doc->categories_, node->owner)); }
     document::table_view    document::table_row_view::table() const noexcept { return *doc->to_view(doc->tables_,     doc->find_node_by_id(doc->tables_,     node->table)); }
     document::category_view document::key_view::owner()       const noexcept { return *doc->to_view(doc->categories_, doc->find_node_by_id(doc->categories_, node->owner)); }
 
-    std::vector<document::category_view> document::categories() const noexcept
+    namespace 
     {
-        std::vector<category_view> res;
-        for (auto const & c : categories_)
-            res.push_back(category_view{ this, &c });
-        return res;
+        template<typename View, typename T2>
+        std::vector<View> collect_views(document const * doc_ptr, std::vector<T2> const & cont)
+        {
+            std::vector<View> res;
+            for (auto const & c : cont)
+                res.push_back(View{ doc_ptr, &c });
+            return res;
+        }
     }
-    std::vector<document::table_view> document::tables() const noexcept
-    {
-        std::vector<table_view> res;
-        for (auto const & c : tables_)
-            res.push_back(table_view{ this, &c });
-        return res;
-    }
-    std::vector<document::table_row_view> document::rows() const noexcept
-    {
-        std::vector<table_row_view> res;
-        for (auto const & c : rows_)
-            res.push_back(table_row_view{ this, &c });
-        return res;
-    }
-    std::vector<document::key_view> document::keys() const noexcept
-    {
-        std::vector<key_view> res;
-        for (auto const & c : keys_)
-            res.push_back(key_view{ this, &c });
-        return res;
-    }
+
+    std::vector<document::category_view>  document::categories() const noexcept { return collect_views<category_view>(this, categories_); }
+    std::vector<document::table_view>     document::tables()     const noexcept { return collect_views<table_view>(this, tables_); }
+    std::vector<document::column_view>    document::columns()    const noexcept { return collect_views<column_view>(this, columns_); }
+    std::vector<document::table_row_view> document::rows()       const noexcept { return collect_views<table_row_view>(this, rows_); }
+    std::vector<document::key_view>       document::keys()       const noexcept { return collect_views<key_view>(this, keys_); }
 
 } // namespace arf
 

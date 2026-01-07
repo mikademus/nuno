@@ -201,9 +201,10 @@ static bool semantic_invalid_column_flagged()
     auto tbl = doc.table(table_id{0});
     EXPECT(tbl.has_value(), "there is no table");
 
-    auto col = tbl->node->columns[0];
-    EXPECT(col.semantic == semantic_state::invalid, "the invalid state flag is not set");
-    EXPECT(col.type == value_type::string, "the key type has not collapsed to string");
+    auto col_id = tbl->node->columns[0];
+    auto col = doc.column(col_id);
+    EXPECT(col->node->col.semantic == semantic_state::invalid, "the invalid state flag is not set");
+    EXPECT(col->node->col.type == value_type::string, "the key type has not collapsed to string");
 
     return true;
 }
