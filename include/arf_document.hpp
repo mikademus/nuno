@@ -236,6 +236,8 @@ namespace arf
         std::span<const table_row_id> rows() const noexcept { return node->rows; }
 
         category_view owner() const noexcept;
+        std::optional<size_t> column_index(std::string_view name) const noexcept;        
+        std::optional<size_t> column_index(column_id id) const noexcept;        
 
         bool is_locally_valid() const noexcept { return node->semantic == semantic_state::valid; }
         bool is_contaminated() const noexcept { return node->contamination == contamination_state::contaminated; }
@@ -252,6 +254,7 @@ namespace arf
 
         table_view table() const noexcept;
         category_view owner() const noexcept;
+        size_t index() const noexcept;
 
         bool is_locally_valid() const noexcept { return node->col.semantic == semantic_state::valid; }
     };
@@ -362,6 +365,34 @@ namespace arf
         return to_view(keys_, find_node_by_name(keys_, name));
     }
 
+    std::optional<size_t> document::table_view::column_index(std::string_view name) const noexcept
+    {
+        auto & cols = node->columns;
+
+        auto it = std::ranges::find_if(cols, [&](column_id col_id)
+        {
+            auto c = doc->column(col_id);
+            if (c.has_value())
+                return c->name() == name;
+            return false;
+        });
+
+        if (it != cols.end())
+            return std::distance(cols.begin(), it);
+
+        return std::nullopt;
+    }
+
+    std::optional<size_t> document::table_view::column_index(column_id id) const noexcept
+    {
+        auto & cols = node->columns;
+        if (auto it = std::ranges::find(cols, id); it != cols.end())
+            return std::distance(cols.begin(), it);
+
+        return std::nullopt;
+    }
+
+
     template<typename T>
     typename std::vector<T>::iterator
     document::find_node_by_id(std::vector<T> & cont, typename T::id_type id) noexcept
@@ -427,6 +458,19 @@ namespace arf
     document::category_view document::table_row_view::owner() const noexcept { return *doc->to_view(doc->categories_, doc->find_node_by_id(doc->categories_, node->owner)); }
     document::table_view    document::table_row_view::table() const noexcept { return *doc->to_view(doc->tables_,     doc->find_node_by_id(doc->tables_,     node->table)); }
     document::category_view document::key_view::owner()       const noexcept { return *doc->to_view(doc->categories_, doc->find_node_by_id(doc->categories_, node->owner)); }
+
+    size_t document::column_view::index() const noexcept
+    {
+        auto cols = table().columns();
+        size_t count = 0;
+        for (auto c : cols)
+        {
+            if (c == id()) break;
+            ++count;
+        }
+        assert (count < cols.size());
+        return count;
+    }
 
     namespace 
     {
