@@ -22,7 +22,7 @@
 
 namespace arf::reflect
 {
-#define SHOW_STEP_CTOR
+//#define SHOW_STEP_CTOR
 
 // ------------------------------------------------------------
 // address step diagnostics
@@ -31,6 +31,7 @@ namespace arf::reflect
     enum class step_state : uint8_t
     {
         ok,
+        uninspected,
         unresolved,
         error
     };
@@ -113,7 +114,7 @@ namespace arf::reflect
             document::key_view,
             const typed_value*
         >;
-
+/*
     struct inspected
     {
         inspected_item item;
@@ -133,6 +134,13 @@ namespace arf::reflect
             );
         }
     };
+*/        
+    struct inspected
+    {
+        inspected_item     item;
+        const typed_value* value;
+        size_t             steps_inspected;
+    };    
 
 // ------------------------------------------------------------
 // address steps
@@ -162,7 +170,7 @@ namespace arf::reflect
 
     struct key_step
     {
-        explicit key_step(key_id id) : id(id) 
+        explicit key_step(arf::key_id id) : id(id) 
         {
         #ifdef SHOW_STEP_CTOR        
             std::cout << "Constructing key_step from key_id with ID = " << id << std::endl;
@@ -243,13 +251,24 @@ namespace arf::reflect
             index_step
         >;
 
+        struct addressed_step
+        {
+            address_step     step;
+            step_diagnostic  diagnostic {step_state::uninspected, step_error::none};
+
+            template <typename T, typename... Args>
+            addressed_step(std::in_place_type_t<T>, Args&&... args)
+                : step(std::in_place_type<T>, std::forward<Args>(args)...)
+            {}            
+        };
+
     // ------------------------------------------------------------
     // address builder
     // ------------------------------------------------------------
 
     struct address
     {
-        std::vector<address_step> steps;
+        std::vector<addressed_step> steps;
 
         address& top(std::string_view name)
         {
@@ -310,6 +329,18 @@ namespace arf::reflect
             steps.emplace_back(std::in_place_type<index_step>, i);
             return *this;
         }
+
+        bool ok()
+        {
+            return std::all_of(
+                steps.begin(),
+                steps.end(),
+                [](const addressed_step& s)
+                {
+                    return s.diagnostic.state != step_state::error;
+                }
+            );
+        }
     };
 
     inline address root()
@@ -359,11 +390,10 @@ namespace arf::reflect
 
     inline inspected inspect(
         inspect_context& ctx,
-        const address& addr
+        address& addr
     )
     {
         inspected out;
-        out.steps.reserve(addr.steps.size());
 
         // reset context
         ctx.category = ctx.doc->root();
@@ -374,8 +404,11 @@ namespace arf::reflect
 
         for (size_t i = 0; i < addr.steps.size(); ++i)
         {
-            const auto& step = addr.steps[i];
-            step_diagnostic diag{};
+            auto& astep = addr.steps[i];
+            auto& diag  = astep.diagnostic;
+            const auto& step = astep.step;
+
+            diag = {};
             diag.state = step_state::ok;
 
             auto error = [&diag](step_error what)
@@ -578,8 +611,6 @@ namespace arf::reflect
                 }
             }
 
-            out.steps.push_back(diag);
-
             if (diag.state == step_state::error)
                 break;
         }
@@ -602,19 +633,11 @@ namespace arf::reflect
     // ------------------------------------------------------------
     const typed_value* resolve(
         inspect_context& ctx,
-        const address& addr
+        address& addr
     )
     {
         auto res = inspect(ctx, addr);
         return res.value;
-    }
-
-    inline std::optional<const typed_value*>
-    resolve_ex(inspect_context& ctx, const address& addr)
-    {
-        auto result = inspect(ctx, addr);        
-        if (result.ok()) return result.value;
-        return std::nullopt;
     }
 } // namespace arf::reflect
 
