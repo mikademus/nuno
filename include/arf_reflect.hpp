@@ -504,7 +504,7 @@ namespace arf::reflect
                 {
                     auto r = ctx.doc->row(s->id);
                     if (!r)
-                        error(step_error::no_row_context);
+                        error(step_error::row_not_found);
                     else
                     {
                         bool owned = false;
