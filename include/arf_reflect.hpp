@@ -101,48 +101,6 @@ namespace arf::reflect
     };
 
 // ------------------------------------------------------------
-// inspection results
-// ------------------------------------------------------------
-
-     using inspected_item =
-        std::variant<
-            std::monostate,
-            document::category_view,
-            document::table_view,
-            document::table_row_view,
-            document::column_view,
-            document::key_view,
-            const typed_value*
-        >;
-/*
-    struct inspected
-    {
-        inspected_item item;
-
-        // final resolved value (if any)
-        const typed_value* value = nullptr;
-
-        // step-by-step diagnostics
-        std::vector<step_diagnostic> steps;
-
-        bool ok() const noexcept
-        {
-            return std::all_of(
-                steps.begin(),
-                steps.end(),
-                [](auto& s) { return s.state == step_state::ok; }
-            );
-        }
-    };
-*/        
-    struct inspected
-    {
-        inspected_item     item;
-        const typed_value* value;
-        size_t             steps_inspected;
-    };    
-
-// ------------------------------------------------------------
 // address steps
 // ------------------------------------------------------------
 
@@ -330,9 +288,9 @@ namespace arf::reflect
             return *this;
         }
 
-        bool ok()
+        bool has_error() const noexcept
         {
-            return std::all_of(
+            auto b = std::all_of(
                 steps.begin(),
                 steps.end(),
                 [](const addressed_step& s)
@@ -340,6 +298,7 @@ namespace arf::reflect
                     return s.diagnostic.state != step_state::error;
                 }
             );
+            return !b;
         }
     };
 
@@ -385,6 +344,42 @@ namespace arf::reflect
     }
 
 // ------------------------------------------------------------
+// inspection results
+// ------------------------------------------------------------
+
+     using inspected_item =
+        std::variant<
+            std::monostate,
+            document::category_view,
+            document::table_view,
+            document::table_row_view,
+            document::column_view,
+            document::key_view,
+            const typed_value*
+        >;
+      
+    struct inspected
+    {
+        const address*     addr {nullptr};
+        inspected_item     item;
+        const typed_value* value;
+        size_t             steps_inspected;
+
+        bool fully_inspected() const { return addr && steps_inspected == addr->steps.size(); }
+        bool ok()              const { return fully_inspected() && !addr->has_error(); }
+        bool has_error()       const { return !fully_inspected(); }        
+
+        size_t first_error_step() const
+        {
+            if (!addr) return steps_inspected;
+            for (size_t i = 0; i < addr->steps.size(); ++i)
+                if (addr->steps[i].diagnostic.state == step_state::error)
+                    return i;
+            return addr->steps.size();
+        }        
+    };    
+
+// ------------------------------------------------------------
 // inspect
 // ------------------------------------------------------------
 
@@ -393,14 +388,20 @@ namespace arf::reflect
         address& addr
     )
     {
-        inspected out;
-
         // reset context
         ctx.category = ctx.doc->root();
         ctx.table.reset();
         ctx.row.reset();
         ctx.column.reset();
         ctx.value = nullptr;
+
+        inspected out;
+        out.addr = &addr;
+        out.item = *ctx.category;
+        out.value = nullptr;
+        out.steps_inspected = 0;
+
+        inspected_item last_valid_item = *ctx.category;
 
         for (size_t i = 0; i < addr.steps.size(); ++i)
         {
@@ -611,19 +612,36 @@ namespace arf::reflect
                 }
             }
 
+            ++out.steps_inspected;
+
             if (diag.state == step_state::error)
                 break;
+
+            if (diag.state == step_state::ok)
+            {
+                if (ctx.value)         last_valid_item = ctx.value;
+                else if (ctx.column)   last_valid_item = *ctx.column;
+                else if (ctx.row)      last_valid_item = *ctx.row;
+                else if (ctx.table)    last_valid_item = *ctx.table;
+                else if (ctx.category) last_valid_item = *ctx.category;
+            }                
         }
 
-        // final inspected item (unchanged semantics)
-        if (ctx.value)        out.item = ctx.value;
-        else if (ctx.column)  out.item = *ctx.column;
-        else if (ctx.row)     out.item = *ctx.row;
-        else if (ctx.table)   out.item = *ctx.table;
-        else if (ctx.category)out.item = *ctx.category;
-        else                  out.item = std::monostate{};
+        //if (out.steps_inspected > 0)
+            out.item = last_valid_item;
 
-        out.value = ctx.value;
+        if (out.ok())
+        {
+            if (auto pv = std::get_if<const typed_value*>(&out.item))
+                out.value = *pv;
+            else
+                out.value = nullptr;
+        }
+        else
+        {
+            out.value = nullptr;
+        }   
+
         return out;
     }
 
