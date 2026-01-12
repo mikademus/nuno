@@ -376,6 +376,12 @@ namespace arf::reflect
         size_t           ordinal = 0; // IDs for tables and rows, index for arrays
     };
 
+    struct prefix_match
+    {
+        structural_child child;
+        address          extended;
+    };    
+
     struct inspected
     {
         const address*     addr {nullptr};
@@ -400,6 +406,9 @@ namespace arf::reflect
         //
         // Structural children describe what the document declares at this location,
         // independent of whether a full address resolved successfully.
+        //
+        // Children are yielded in the same order as authored in the source document.
+        // This order is stable and must not be altered by name, kind, or ordinal sorting.
         //
         // Key properties:
         // - Operates on the last successfully resolved structural item, not on values
@@ -453,8 +462,11 @@ namespace arf::reflect
         //
         // Matching is literal and case-sensitive.
         // Ordering is preserved from the document.
-        std::vector<structural_child>
-        prefix_children_matching( const inspect_context& ctx, std::string_view name_prefix ) const;
+        std::vector<prefix_match>
+        prefix_children_matching(const inspect_context& ctx, std::string_view prefix) const;
+
+        std::vector<address>
+        suggest_next(inspect_context& ctx, std::string_view prefix) const;
     };    
 
 // ------------------------------------------------------------
@@ -887,33 +899,44 @@ namespace arf::reflect
         return next;
     }
 
-    std::vector<structural_child>
-    inspected::prefix_children_matching(const inspect_context& ctx, std::string_view prefix) const
+    inline std::vector<prefix_match>
+    inspected::prefix_children_matching(
+        const inspect_context& ctx,
+        std::string_view prefix
+    ) const
     {
-        std::vector<structural_child> out;
+        std::vector<prefix_match> out;
 
-        for (const auto& child : structural_children(ctx))
+        for (const auto& c : structural_children(ctx))
         {
-            if (!child.name.empty())
+            if (!prefix.empty())
             {
-                if (child.name.starts_with(prefix))
-                    out.push_back(child);
+                if (c.name.empty())
+                    continue;
+
+                if (!c.name.starts_with(prefix))
+                    continue;
             }
-            else
-            {
-                // Anonymous children: match against ordinal rendering
-                // (editor-friendly, stable, unambiguous)
-                std::string ordinal_str = std::to_string(child.ordinal);
-                if (ordinal_str.starts_with(prefix))
-                    out.push_back(child);
-            }
+
+            out.push_back({
+                c,
+                extend_address(c)
+            });
         }
 
         return out;
     }
 
+    inline std::vector<address>
+    inspected::suggest_next(inspect_context& ctx, std::string_view token) const
+    {
+        std::vector<address> out;
 
+        for (auto& m : prefix_children_matching(ctx, token))
+            out.push_back(m.extended);
 
+        return out;
+    }
 
 // ------------------------------------------------------------
 // resolve

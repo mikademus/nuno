@@ -7,6 +7,15 @@
 
 namespace arf::tests
 {
+template <typename T>
+const T* get_step(const arf::reflect::address& addr)
+{
+    if (addr.steps.empty())
+        return nullptr;
+
+    return std::get_if<T>(&addr.steps.back().step);
+}
+
 
 static bool reflect_empty_address_is_root()
 {
@@ -655,8 +664,8 @@ static bool structural_prefix_children_matching()
     auto matches = res.prefix_children_matching(ictx, "al");
 
     EXPECT(matches.size() == 1, "only one key should match prefix");
-    EXPECT(matches[0].kind == structural_child::kind::key, "match should be a key");
-    EXPECT(matches[0].name == "alpha", "matched key should be alpha");
+    EXPECT(matches[0].child.kind == structural_child::kind::key, "match should be a key");
+    EXPECT(matches[0].child.name == "alpha", "matched key should be alpha");
 
     return true;
 }
@@ -678,6 +687,134 @@ static bool structural_children_of_scalar_is_empty()
     auto children = res.structural_children(ictx);
 
     EXPECT(children.empty(), "scalar value must have no structural children");
+    return true;
+}
+
+static bool prefix_children_empty_prefix_lists_all()
+{
+    using namespace arf::reflect;
+
+    auto ctx = load(
+        "a:\n"
+        "  :b\n"
+        "    x = 1\n"
+        "  y = 2\n"
+    );
+
+    inspect_context ictx{ .doc = &ctx.document };
+    auto res = inspect(ictx, root().top("a"));
+
+    auto all = res.structural_children(ictx);
+    auto pref = res.prefix_children_matching(ictx, "");
+
+    EXPECT(pref.size() == all.size(),
+           "empty prefix should list all structural children");
+
+    return true;
+}
+
+static bool prefix_children_excludes_anonymous()
+{
+    using namespace arf::reflect;
+
+    auto ctx = load(
+        "a:\n"
+        "  :t\n"
+        "    # x\n"
+        "      1\n"
+    );
+
+    inspect_context ictx{ .doc = &ctx.document };
+    auto res = inspect(ictx, root().top("a"));
+
+    auto pref = res.prefix_children_matching(ictx, "0");
+
+    for (auto& p : pref)
+        EXPECT(!p.child.name.empty(),
+               "anonymous children must not match textual prefix");
+
+    return true;
+}
+
+static bool prefix_children_preserve_order()
+{
+    using namespace arf::reflect;
+
+    auto ctx = load(
+        "a:\n"
+        "  apple = 1\n"
+        "  apricot = 2\n"
+        "  banana = 3\n"
+    );
+
+    inspect_context ictx{ .doc = &ctx.document };
+    auto res = inspect(ictx, root().top("a"));
+
+    auto pref = res.prefix_children_matching(ictx, "ap");
+
+    EXPECT(pref.size() == 2, "two matches expected");
+    EXPECT(pref[0].child.name == "apple", "order must be preserved");
+    EXPECT(pref[1].child.name == "apricot", "order must be preserved");
+
+    return true;
+}
+
+static bool suggest_next_after_failed_inspection()
+{
+    using namespace arf::reflect;
+
+    auto ctx = load(
+        "a:\n"
+        "  :b\n"
+        "    x = 1\n"
+    );
+
+    inspect_context ictx{ .doc = &ctx.document };
+
+    auto res = inspect(
+        ictx,
+        root().top("a").sub("nope")
+    );
+
+    auto suggestions = res.suggest_next(ictx, "");
+
+    bool saw_b = false;
+
+    for (const auto& addr : suggestions)
+    {
+        if (auto* sub = get_step<sub_category_step>(addr))
+        {
+            if (sub->name == "b")
+                saw_b = true;
+        }
+    }
+
+    EXPECT(saw_b, "should suggest subcategory 'b'");
+
+    return true;
+}
+
+static bool suggest_next_prefix_filters_children()
+{
+    using namespace arf::reflect;
+
+    auto ctx = load(
+        "a:\n"
+        "  apple = 1\n"
+        "  banana = 2\n"
+    );
+
+    inspect_context ictx{ .doc = &ctx.document };
+    auto res = inspect(ictx, root().top("a"));
+
+    auto suggestions = res.suggest_next(ictx, "ba");
+
+    EXPECT(suggestions.size() == 1, "only one suggestion should match");
+
+    auto* key = get_step<key_step>(suggestions[0]);
+    EXPECT(key != nullptr, "expected key suggestion");
+    EXPECT(std::get<std::string_view>(key->id) == "banana", "only banana should match prefix");
+
     return true;
 }
 
@@ -716,6 +853,11 @@ inline void run_reflection_tests()
     RUN_TEST(structural_extend_address_after_failed_inspection);
     RUN_TEST(structural_prefix_children_matching);
     RUN_TEST(structural_children_of_scalar_is_empty);
+    RUN_TEST(prefix_children_empty_prefix_lists_all);
+    RUN_TEST(prefix_children_excludes_anonymous);
+    RUN_TEST(prefix_children_preserve_order);
+    RUN_TEST(suggest_next_after_failed_inspection);
+    RUN_TEST(suggest_next_prefix_filters_children);
 }
 
 } // namespace arf::tests
