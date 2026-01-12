@@ -413,24 +413,186 @@ static bool inspect_reports_partial_progress()
     return true;
 }
 
+static bool structural_children_of_category()
+{
+    using namespace arf::reflect;
+
+    auto ctx = load(
+        "a:\n"
+        "  :b\n"
+        "    x = 1\n"
+        "  y = 2\n"
+    );
+
+    inspect_context ictx{ .doc = &ctx.document };
+
+    address addr = root().top("a");
+    auto res = inspect(ictx, addr);
+
+    auto children = res.structural_children(ictx);
+
+    bool saw_sub = false;
+    bool saw_key = false;
+
+    for (auto& c : children)
+    {
+        if (c.kind == structural_child::kind::sub_category && c.name == "b")
+            saw_sub = true;
+        if (c.kind == structural_child::kind::key && c.name == "y")
+            saw_key = true;
+    }
+
+    EXPECT(saw_sub, "step 1: subcategory b should be listed");
+    EXPECT(!saw_key, "step 1: key y should not be listed");
+
+    saw_sub = false;
+    saw_key = false;
+
+    addr.sub("b");
+    res = inspect(ictx, addr);
+    
+    children = res.structural_children(ictx);
+
+    for (auto& c : children)
+    {
+        if (c.kind == structural_child::kind::sub_category && c.name == "b")
+            saw_sub = true;
+        if (c.kind == structural_child::kind::key && c.name == "y")
+            saw_key = true;
+    }
+
+    EXPECT(!saw_sub, "step 2: subcategory b should not be listed");
+    EXPECT(saw_key, "step 2: key y should be listed");
+
+    return true;
+}
+
+static bool structural_children_after_failed_inspection()
+{
+    using namespace arf::reflect;
+
+    auto ctx = load(
+        "a:\n"
+        "  x:int[] = 1|2|3\n"
+    );
+
+    inspect_context ictx{ .doc = &ctx.document };
+
+    address addr =
+        root()
+            .top("a")
+            .key("x")
+            .index(99); // invalid
+
+    auto res = inspect(ictx, addr);
+
+    EXPECT(!res.ok(), "inspection must fail");
+
+    auto children = res.structural_children(ictx);
+
+    bool saw_index = false;
+    for (auto& c : children)
+        if (c.kind == structural_child::kind::index)
+            saw_index = true;
+
+    EXPECT(saw_index, "array indices should be offered after failure");
+
+    return true;
+}
+
+static bool structural_children_of_table_row()
+{
+    using namespace arf::reflect;
+
+    auto ctx = load(
+        "a:\n"
+        "  # x  y\n"
+        "    1  2\n"
+    );
+
+    auto cat = ctx.document.category("a");
+    auto tid = cat->tables()[0];
+    auto rid = ctx.document.table(tid)->rows()[0];
+
+    inspect_context ictx{ .doc = &ctx.document };
+
+    address addr =
+        root()
+            .top("a")
+            .table(tid)
+            .row(rid);
+
+    auto res = inspect(ictx, addr);
+    auto children = res.structural_children(ictx);
+
+    bool saw_x = false;
+    bool saw_y = false;
+
+    for (auto& c : children)
+    {
+        if (c.kind == structural_child::kind::column && c.name == "x")
+            saw_x = true;
+        if (c.kind == structural_child::kind::column && c.name == "y")
+            saw_y = true;
+    }
+
+    EXPECT(saw_x && saw_y, "row should expose columns x and y");
+
+    return true;
+}
+
+static bool structural_children_of_scalar_value_is_empty()
+{
+    using namespace arf::reflect;
+
+    auto ctx = load("a:\n  x = 1\n");
+
+    inspect_context ictx{ .doc = &ctx.document };
+
+    address addr =
+        root()
+            .top("a")
+            .key("x");
+
+    auto res = inspect(ictx, addr);
+    auto children = res.structural_children(ictx);
+
+    EXPECT(children.empty(), "scalar value should have no structural children");
+
+    return true;
+}
+
+
 inline void run_reflection_tests()
 {
-    SUBCAT("Reflection");
+    SUBCAT("Inspection basic");
     RUN_TEST(reflect_empty_address_is_root);
     RUN_TEST(reflect_empty_address_has_item_but_no_value);
+    RUN_TEST(inspect_reports_partial_progress);
+
+    SUBCAT("Address semantics");
     RUN_TEST(reflect_top_level_category_key);
     RUN_TEST(reflect_explicit_subcategory_key);
     RUN_TEST(reflect_subcategory_without_context_fails);
     RUN_TEST(reflect_top_level_category_does_not_nest);
+    RUN_TEST(reflect_indented_but_not_subcategory_does_not_resolve);
+
+    SUBCAT("Value resolution");
     RUN_TEST(reflect_table_cell_by_column_name);
     RUN_TEST(reflect_invalid_column_fails);
     RUN_TEST(reflect_array_index);
     RUN_TEST(reflect_array_index_out_of_bounds_fails);
+
+    SUBCAT("Partial inspection behaviour");
     RUN_TEST(reflect_partial_prefix_stops_at_error);
     RUN_TEST(reflect_partial_prefix_yields_last_valid_item);
     RUN_TEST(reflect_partial_prefix_preserves_last_structure);
-    RUN_TEST(reflect_indented_but_not_subcategory_does_not_resolve);
-    RUN_TEST(inspect_reports_partial_progress);
+    
+    SUBCAT("Structural queries");
+    RUN_TEST(structural_children_of_category);
+    RUN_TEST(structural_children_after_failed_inspection);
+    RUN_TEST(structural_children_of_table_row);
+    RUN_TEST(structural_children_of_scalar_value_is_empty);
 }
 
 } // namespace arf::tests
