@@ -562,6 +562,125 @@ static bool structural_children_of_scalar_value_is_empty()
     return true;
 }
 
+static bool structural_extend_address_from_category()
+{
+    using namespace arf::reflect;
+
+    auto ctx = load(
+        "a:\n"
+        "  :b\n"
+        "    x = 1\n"
+    );
+
+    inspect_context ictx{ .doc = &ctx.document };
+
+    address addr = root().top("a");
+    auto res = inspect(ictx, addr);
+
+    auto children = res.structural_children(ictx);
+
+    bool extended = false;
+
+    for (auto& c : children)
+    {
+        if (c.kind == structural_child::kind::sub_category && c.name == "b")
+        {
+            auto next = res.extend_address(c);
+            EXPECT(next.steps.size() == 2, "extended address should have one extra step");
+            EXPECT(std::holds_alternative<sub_category_step>(next.steps.back().step),
+                   "extended step should be sub_category");
+            extended = true;
+        }
+    }
+
+    EXPECT(extended, "expected to extend address with subcategory b");
+    return true;
+}
+
+static bool structural_extend_address_after_failed_inspection()
+{
+    using namespace arf::reflect;
+
+    auto ctx = load(
+        "a:\n"
+        "  :b\n"
+        "    x = 1\n"
+    );
+
+    inspect_context ictx{ .doc = &ctx.document };
+
+    address addr =
+        root()
+            .top("a")
+            .sub("nope"); // fails
+
+    auto res = inspect(ictx, addr);
+
+    EXPECT(!res.ok(), "inspection must fail");
+
+    auto children = res.structural_children(ictx);
+
+    bool saw_b = false;
+
+    for (auto& c : children)
+    {
+        if (c.kind == structural_child::kind::sub_category && c.name == "b")
+        {
+            auto next = res.extend_address(c);
+            EXPECT(next.steps.size() == 2, "extension should be from last valid prefix");
+            saw_b = true;
+        }
+    }
+
+    EXPECT(saw_b, "should be able to extend from last valid category");
+    return true;
+}
+
+static bool structural_prefix_children_matching()
+{
+    using namespace arf::reflect;
+
+    auto ctx = load(
+        "a:\n"
+        "  alpha = 1\n"
+        "  beta  = 2\n"
+        "  gamma = 3\n"
+    );
+
+    inspect_context ictx{ .doc = &ctx.document };
+
+    address addr = root().top("a");
+    auto res = inspect(ictx, addr);
+
+    auto matches = res.prefix_children_matching(ictx, "al");
+
+    EXPECT(matches.size() == 1, "only one key should match prefix");
+    EXPECT(matches[0].kind == structural_child::kind::key, "match should be a key");
+    EXPECT(matches[0].name == "alpha", "matched key should be alpha");
+
+    return true;
+}
+
+static bool structural_children_of_scalar_is_empty()
+{
+    using namespace arf::reflect;
+
+    auto ctx = load("a:\n  x = 1\n");
+
+    inspect_context ictx{ .doc = &ctx.document };
+
+    address addr =
+        root()
+            .top("a")
+            .key("x");
+
+    auto res = inspect(ictx, addr);
+    auto children = res.structural_children(ictx);
+
+    EXPECT(children.empty(), "scalar value must have no structural children");
+    return true;
+}
+
 
 inline void run_reflection_tests()
 {
@@ -587,12 +706,16 @@ inline void run_reflection_tests()
     RUN_TEST(reflect_partial_prefix_stops_at_error);
     RUN_TEST(reflect_partial_prefix_yields_last_valid_item);
     RUN_TEST(reflect_partial_prefix_preserves_last_structure);
-    
+
     SUBCAT("Structural queries");
     RUN_TEST(structural_children_of_category);
     RUN_TEST(structural_children_after_failed_inspection);
     RUN_TEST(structural_children_of_table_row);
     RUN_TEST(structural_children_of_scalar_value_is_empty);
+    RUN_TEST(structural_extend_address_from_category);
+    RUN_TEST(structural_extend_address_after_failed_inspection);
+    RUN_TEST(structural_prefix_children_matching);
+    RUN_TEST(structural_children_of_scalar_is_empty);
 }
 
 } // namespace arf::tests

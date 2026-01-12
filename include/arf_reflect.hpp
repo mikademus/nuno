@@ -373,7 +373,7 @@ namespace arf::reflect
 
         kind kind;
         std::string_view name;   // empty for anonymous (row, index)
-        size_t           ordinal = 0;
+        size_t           ordinal = 0; // IDs for tables and rows, index for arrays
     };
 
     struct inspected
@@ -396,19 +396,65 @@ namespace arf::reflect
             return addr->steps.size();
         }
         
-        // Structural queries operate on item, not value
+        // Returns the immediate structural children of the currently inspected item.
         //
-        // They:
-        // - never fail
-        // - never mutate
-        // - never resolve
+        // Structural children describe what the document declares at this location,
+        // independent of whether a full address resolved successfully.
         //
-        // If inspection failed mid-address children are derived 
-        // from the last valid item.
+        // Key properties:
+        // - Operates on the last successfully resolved structural item, not on values
+        // - Never fails, never mutates, and never performs further resolution
+        // - Preserves authored document order
         //
-        // If item is std::monostate result is empty
+        // Failure semantics:
+        // - If inspection stopped early due to an error, children are derived from the
+        //   last valid item before the failure
+        // - If no structural item exists (item is std::monostate), the result is empty
+        //
+        // Typical use cases:
+        // - Editor navigation and discovery
+        // - Prefix-based address completion
+        // - Structural introspection and tooling
         std::vector<structural_child>
         structural_children(const inspect_context& ctx) const;
+
+        // Returns the structural children that are valid continuations of the current
+        // address prefix(the last successfully inspected prefix of this address).
+        //
+        // If inspection failed partway through the address,
+        // children are computed from the last valid structural
+        // item (category, table, row, etc.), not from the full
+        // unresolved address.
+        //
+        // This is the foundation for editor-style navigation,
+        // suggestions, and address completion.
+        //
+        // This is a semantic alias of structural_children(), provided to make
+        // intent explicit at call sites where an address is treated as a prefix
+        // for navigation, discovery, or completion rather than as a full query.
+        //
+        // No additional resolution is performed.
+        std::vector<structural_child>
+        prefix_children(const inspect_context& ctx) const
+        {
+            return structural_children(ctx);
+        }
+
+        // Construct a new address by extending the inspected
+        // address prefix with a structural child.
+        //
+        // The child must be valid in the context of this
+        // inspection result. No validation or re-inspection
+        // is performed here.     
+        address extend_address(const structural_child& child) const;
+
+        // Returns structural children whose names begin with
+        // the supplied string prefix.
+        //
+        // Matching is literal and case-sensitive.
+        // Ordering is preserved from the document.
+        std::vector<structural_child>
+        prefix_children_matching( const inspect_context& ctx, std::string_view name_prefix ) const;
     };    
 
 // ------------------------------------------------------------
@@ -722,7 +768,7 @@ namespace arf::reflect
                 out.push_back({
                     structural_child::kind::table,
                     {},
-                    i++
+                    static_cast<size_t>(tid)
                 });
             }
 
@@ -793,6 +839,82 @@ namespace arf::reflect
         return out;
     }    
 
+    address inspected::extend_address(const structural_child& child) const
+    {
+        address next;
+
+        // Determine extension point:
+        // - if inspection fully succeeded → extend at end
+        // - if inspection failed → extend at first failing step
+        size_t prefix_len = ok() ? steps_inspected : first_error_step();
+
+        next.steps.assign(
+            addr->steps.begin(),
+            addr->steps.begin() + prefix_len
+        );
+
+        switch (child.kind)
+        {
+            case structural_child::kind::top_category:
+                next.top(child.name);
+                break;
+
+            case structural_child::kind::sub_category:
+                next.sub(child.name);
+                break;
+
+            case structural_child::kind::key:
+                next.key(child.name);
+                break;
+
+            case structural_child::kind::table:
+                next.table(table_id{child.ordinal});
+                break;
+
+            case structural_child::kind::row:
+                next.row(table_row_id{child.ordinal});
+                break;
+
+            case structural_child::kind::column:
+                next.column(child.name);
+                break;
+
+            case structural_child::kind::index:
+                next.index(child.ordinal);
+                break;
+        }
+
+        return next;
+    }
+
+    std::vector<structural_child>
+    inspected::prefix_children_matching(const inspect_context& ctx, std::string_view prefix) const
+    {
+        std::vector<structural_child> out;
+
+        for (const auto& child : structural_children(ctx))
+        {
+            if (!child.name.empty())
+            {
+                if (child.name.starts_with(prefix))
+                    out.push_back(child);
+            }
+            else
+            {
+                // Anonymous children: match against ordinal rendering
+                // (editor-friendly, stable, unambiguous)
+                std::string ordinal_str = std::to_string(child.ordinal);
+                if (ordinal_str.starts_with(prefix))
+                    out.push_back(child);
+            }
+        }
+
+        return out;
+    }
+
+
+
+
 // ------------------------------------------------------------
 // resolve
 // ------------------------------------------------------------
@@ -805,7 +927,7 @@ namespace arf::reflect
         auto res = inspect(ctx, addr);
         return res.value;
     }
-    
+
 } // namespace arf::reflect
 
 #endif // ARF_REFLECT_HPP
