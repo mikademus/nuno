@@ -1,4 +1,4 @@
-// arf_materialise.hpp - A Readable Format (Arf!)
+// arf.hpp - A Readable Format (Arf!)
 // Version 0.3.0
 // Copyright 2025 Mikael Ueno A
 // Licenced as-is under the MIT licence.
@@ -27,6 +27,12 @@
 // Invalid constructs are preserved, not erased.
 // Errors are local and non-fatal.
 // A broken document is still a document.
+//
+//
+// The Non-Destructive Observation Principle
+// -----------------------------------------
+// Reading must never require reshaping data.
+// Querying reveals what exists; it does not coerce it into forms.
 //
 //========================================================================
 

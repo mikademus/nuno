@@ -39,6 +39,10 @@
 //    A query is executed when results are accessed.
 //    There is no explicit "eval" or execution step.
 //
+// 9. Query results are transparent and present.
+//    Current results (the working set) can always be examined.
+//    (Again, there is not explicit execution step.)
+//
 // The query API is optimised for human ergonomics and clarity.
 // Tooling, mutation, and structural introspection belong to reflection.
 //
