@@ -1,3 +1,5 @@
+For query API v0.2.0.
+
 # Querying Data in an Arf! Document
 
 This document describes the **public query API** for accessing parsed Arf! data.
