@@ -6,6 +6,7 @@
 #include "arf_query_tests.hpp"
 //#include "arf_value_semantics_tests.hpp"
 #include <cstring>
+#include <iostream>
 
 namespace arf::tests 
 {

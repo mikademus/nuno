@@ -22,7 +22,6 @@
 
 namespace arf::reflect
 {
-//#define SHOW_STEP_CTOR
 
 // ------------------------------------------------------------
 // address step diagnostics
@@ -108,9 +107,6 @@ namespace arf::reflect
     {
         explicit top_category_step(std::string_view n) : name(n)  
         {
-        #ifdef SHOW_STEP_CTOR        
-            std::cout << "Constructing top_category_step with name = " << name << std::endl;
-        #endif        
         }
         std::string_view name;
     };
@@ -119,82 +115,40 @@ namespace arf::reflect
     {
         explicit sub_category_step(std::string_view n) : name(n)  
         {
-        #ifdef SHOW_STEP_CTOR        
-            std::cout << "Constructing sub_category_step with name = " << name << std::endl;
-        #endif            
         }
         std::string_view name;
     };
 
     struct key_step
     {
-        explicit key_step(arf::key_id id) : id(id) 
-        {
-        #ifdef SHOW_STEP_CTOR        
-            std::cout << "Constructing key_step from key_id with ID = " << id << std::endl;
-        #endif            
-        }
-        explicit key_step(std::string_view n) : id(n) {
-        #ifdef SHOW_STEP_CTOR        
-            std::cout << "Constructing key_step from string with name = " << n << std::endl;
-        #endif            
-        }
+        explicit key_step(arf::key_id id) : id(id) {}
+        explicit key_step(std::string_view n) : id(n) {}
         std::variant<key_id, std::string_view> id;
     };
 
     struct table_step
     {
-        explicit table_step(table_id id) : id(id) 
-        {
-        #ifdef SHOW_STEP_CTOR        
-            std::cout << "Constructing table_step from table_id with ID = " << id << std::endl;
-        #endif            
-        }
-        explicit table_step(size_t loc_idx) : id(loc_idx) 
-        {
-        #ifdef SHOW_STEP_CTOR        
-            std::cout << "Constructing table_step from size_t with local index = " << loc_idx << std::endl;
-        #endif            
-        }
+        explicit table_step(table_id id) : id(id)  {}
+        explicit table_step(size_t loc_idx) : id(loc_idx)  {}
         std::variant<table_id, size_t> id; // id or local ordinal
     };
 
     struct row_step
     {
-        explicit row_step(table_row_id id) : id(id) 
-        {
-        #ifdef SHOW_STEP_CTOR        
-            std::cout << "Constructing row_step from table_row_id with ID = " << id << std::endl;
-        #endif            
-        }
+        explicit row_step(table_row_id id) : id(id)  {}
         table_row_id id;
     };
 
     struct column_step
     {
-        explicit column_step(column_id id) : id(id) 
-        {
-        #ifdef SHOW_STEP_CTOR        
-            std::cout << "Constructing column_step from column_id with ID = " << id << std::endl;
-        #endif            
-        }
-        explicit column_step(std::string_view name) : id(name) 
-        {
-        #ifdef SHOW_STEP_CTOR        
-            std::cout << "Constructing column_step from string with name = " << name << std::endl;
-        #endif            
-        }
+        explicit column_step(column_id id) : id(id) {}
+        explicit column_step(std::string_view name) : id(name) {}
         std::variant<column_id, std::string_view> id;
     };
 
     struct index_step
     {
-        explicit index_step(size_t idx) : index(idx) 
-        {
-        #ifdef SHOW_STEP_CTOR        
-            std::cout << "Constructing index_step from size_t with index = " << index << std::endl;
-        #endif            
-        }
+        explicit index_step(size_t idx) : index(idx) {}
         size_t index;
     };
 
@@ -312,6 +266,31 @@ namespace arf::reflect
         }
     };
 
+    inline std::string_view to_string(address_step const &step)
+    {
+        if (std::holds_alternative<key_step>(step)) return "key";
+        if (std::holds_alternative<top_category_step>(step)) return "top_category_step";
+        if (std::holds_alternative<sub_category_step>(step)) return "sub_category_step";
+        if (std::holds_alternative<table_step>(step)) return "table_step";
+        if (std::holds_alternative<row_step>(step)) return "row_step";
+        if (std::holds_alternative<column_step>(step)) return "column_step";
+        if (std::holds_alternative<index_step>(step)) return "index_step";
+        return "unknown";
+    }
+    inline std::string to_string(address const & addr)    
+    {
+        std::string str;
+        int i = 0;
+        for (auto const & s : addr.steps)
+        {
+            str += to_string(s.step);
+            if (++i < addr.steps.size())
+                str += "->";
+        }
+        return str;
+    }
+
+
     static_assert(std::is_copy_constructible_v<address>, "address must be copyable for const inspect() to work");
 
     inline address root()
@@ -388,6 +367,21 @@ namespace arf::reflect
         size_t           ordinal = 0; // IDs for tables and rows, index for arrays
     };
 
+    inline std::string_view to_string(enum structural_child::kind kind)
+    {
+        switch (kind)
+        {
+            case structural_child::kind::top_category: return "top_category";
+            case structural_child::kind::sub_category: return "sub_category";
+            case structural_child::kind::key: return "key";
+            case structural_child::kind::table: return "table";
+            case structural_child::kind::row: return "row";
+            case structural_child::kind::column: return "column";
+            case structural_child::kind::index: return "index";
+            default: return "unknown";
+        }
+    }
+
     struct prefix_match
     {
         structural_child child;
@@ -396,13 +390,14 @@ namespace arf::reflect
 
     struct inspected
     {
-        const address*     addr {nullptr};
+        // const address*     addr {nullptr};
+        std::optional<address> addr;
         inspected_item     item;
         const typed_value* value;
         size_t             steps_inspected;
 
         bool fully_inspected() const { return addr && steps_inspected == addr->steps.size(); }
-        bool ok()              const { return fully_inspected() && !addr->has_error(); }
+        bool ok()              const { return fully_inspected() && !addr->has_error(); }       
         bool has_error()       const { return !fully_inspected(); }        
 
         size_t first_error_step() const
@@ -489,7 +484,8 @@ namespace arf::reflect
 // Most efficient for single-threaded reuse.
 // ------------------------------------------------------------
 // Note: Addresses can be reused across multiple inspections.
-// Each inspection resets and rewrites diagnostic state.
+// Each inspection resets and rewrites address diagnostic state.
+// The address in the returned inpected object is a frozen copy.
 // ------------------------------------------------------------
 
     inline inspected inspect(
@@ -505,7 +501,6 @@ namespace arf::reflect
         ctx.value = nullptr;
 
         inspected out;
-        out.addr = &addr;
         out.item = *ctx.category;
         out.value = nullptr;
         out.steps_inspected = 0;
@@ -737,6 +732,7 @@ namespace arf::reflect
         }
 
         out.item = last_valid_item;
+        out.addr = addr;
 
         if (out.ok())
         {

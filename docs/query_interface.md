@@ -99,11 +99,11 @@ Each segment applies a selection predicate:
 ```
 
 Conceptual execution:
-    1. Start with entire document as working set
+1. Start with entire document as working set
        **Note** that the initial working set *conceptually* represents “all observable values in the document”, not a concrete collection. Each selection step progressively constrains what can be observed.
-    2. Filter to elements matching "world" → working set = {world values or value-bearing structures}
-    3. Filter to elements matching "races" → working set = {race values or value-bearing structures}
-    4. Filter to elements matching "orcs"  → working set = {orc values or value-bearing structures}
+2. Filter to elements matching "world" → working set = {world values or value-bearing structures}
+3. Filter to elements matching "races" → working set = {race values or value-bearing structures}
+4. Filter to elements matching "orcs"  → working set = {orc values or value-bearing structures}
 
 This is analogous to:
   - SQL: Successive WHERE clauses on derived tables
@@ -200,7 +200,7 @@ Document order is preserved unless explicitly refined.
 
 #### 7. Predicate model
 
-// Predicates are explicit value constraints.
+Predicates are explicit value constraints.
 
 ```cpp
      where("population", gt("1000"))
@@ -278,16 +278,16 @@ Dot-paths are split on the `.` character.
 Tables are selected through the `#` character.
 
 Rules:
-    1. `.` and `#` are reserved characters in dot-paths. Identifiers containing periods or hashes cannot be selected via dot-paths and must instead be accessed using flowing predicates.  
-    2. Tables are nameless and selected by ordinal position in their nearest category context. Dot-paths support the shorthand `#n`, meaning the "nth table" (zero-based).
+1. `.` and `#` are reserved characters in dot-paths. Identifiers containing periods or hashes cannot be selected via dot-paths and must instead be accessed using flowing predicates.  
+2. Tables are nameless and selected by ordinal position in their nearest category context. Dot-paths support the shorthand `#n`, meaning the "nth table" (zero-based).
 ```cpp
      "settings.#2.users"
 ```       
-    3. Array indices can be accessed by their ordinal number when following an array value.
+3. Array indices can be accessed by their ordinal number, meaning the "nth item" (zero-based), when following an array value.
 ```cpp
      "equipment.potions.2"
 ``` 
-    4. Ordinal selection is contextual:
+4. Ordinal selection is contextual:
 `#n` and array indices are only valid where a table or array selection is meaningful.
 If no such table or array exists, the step yields an empty refinement and a diagnostic.
 
