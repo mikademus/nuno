@@ -10,6 +10,7 @@
 #include "../include/arf.hpp"
 
 #include <iostream>
+#include <limits>
 
 namespace arf::tests
 {
@@ -50,15 +51,79 @@ namespace arf::tests
         auto ctx = load(R"(
             world:
                 foo = 42
+                bar = 3.1415
+                baz = foobar
+                qux = true
         )");
                 
-        auto q = query(ctx.document, "world.foo");
-        EXPECT(!q.empty(), "There should be a match");
+        {
+            auto foo = query(ctx.document, "world.foo");
+            EXPECT(!foo.empty(), "There should be an integer match");
+            auto v = foo.as_integer();
+            EXPECT(v.has_value(), "Integer should have been found");
+            EXPECT(*v == 42, "Incorrect integer value extracted");
+        }
 
-        return false;
-        //auto v = get_integer(ctx.document, "world.foo");
-        //EXPECT(v.value.has_value(), "Item should have been found");
-        //EXPECT(*v.value == 42, "Incorrect value extracted");
+        {
+            auto bar = query(ctx.document, "world.bar");
+            EXPECT(!bar.empty(), "There should be a real match");
+            auto v = bar.as_real();
+            EXPECT(v.has_value(), "Real should have been found");
+            EXPECT(*v - 3.1415 <= std::numeric_limits<double>::epsilon(), "Incorrect real value extracted");
+        }
+
+        {
+            auto baz = query(ctx.document, "world.baz");
+            EXPECT(!baz.empty(), "There should be a string match");
+            auto v = baz.as_string();
+            EXPECT(v.has_value(), "String should have been found");
+            EXPECT(*v == "foobar", "Incorrect string value extracted");
+        }
+
+        {
+            auto foo = query(ctx.document, "world.qux");
+            EXPECT(!foo.empty(), "There should be a bool match");
+            auto v = foo.as_bool();
+            EXPECT(v.has_value(), "Bool should have been found");
+            EXPECT(*v, "Incorrect bool value extracted");
+        }
+
+        return true;
+    }
+
+    bool extract_single_value_through_helpers()
+    {
+        auto ctx = load(R"(
+            world:
+                foo = 42
+                bar = 3.1415
+                baz = foobar
+                qux = true
+        )");
+                
+        {
+            auto v = get_integer(ctx.document, "world.foo");
+            EXPECT(v.has_value(), "Integer should have been found");
+            EXPECT(*v == 42, "Incorrect integer value extracted");
+        }
+
+        {
+            auto v = get_real(ctx.document, "world.bar");
+            EXPECT(v.has_value(), "Real should have been found");
+            EXPECT(*v - 3.1415 <= std::numeric_limits<double>::epsilon(), "Incorrect real value extracted");
+        }
+
+        {
+            auto v = get_string(ctx.document, "world.baz");
+            EXPECT(v.has_value(), "String should have been found");
+            EXPECT(*v == "foobar", "Incorrect string value extracted");
+        }
+
+        {
+            auto v = get_bool(ctx.document, "world.qux");
+            EXPECT(v.has_value(), "Bool should have been found");
+            EXPECT(*v, "Incorrect bool value extracted");
+        }
 
         return true;
     }
@@ -70,22 +135,28 @@ namespace arf::tests
             arr:int[] = 42|13|1
         )");
 
-    // Establishing ground truth:
-        auto keys = ctx.document.keys();
-        EXPECT(keys.size() == 1, "There should be one key");
-        auto k = ctx.document.key(keys.front().id());
-        EXPECT(k.has_value(), "The key should have been extracted");
-        EXPECT(k->name() == "arr", "The key should be named arr");
-        EXPECT(k->is_array(), "The key should be an array");
-        EXPECT(k->value().type == value_type::int_array, "The key should be an array of integers");
-        auto const & arr = std::get<std::vector<typed_value>>(k->value().val);
-        EXPECT(arr.size() == 3, "The array's arity should be 3");
-        EXPECT(arr.at(1).type == value_type::integer && std::get<std::int64_t>(arr.at(1).val) == 13, "arr[1] != 13");
+        // Establishing ground truth:
+        {
+            auto keys = ctx.document.keys();
+            EXPECT(keys.size() == 1, "There should be one key");
+            auto k = ctx.document.key(keys.front().id());
+            EXPECT(k.has_value(), "The key should have been extracted");
+            EXPECT(k->name() == "arr", "The key should be named arr");
+            EXPECT(k->is_array(), "The key should be an array");
+            EXPECT(k->value().type == value_type::int_array, "The key should be an array of integers");
+            auto const & arr = std::get<std::vector<typed_value>>(k->value().val);
+            EXPECT(arr.size() == 3, "The array's arity should be 3");
+            EXPECT(arr.at(1).type == value_type::integer && std::get<std::int64_t>(arr.at(1).val) == 13, "arr[1] != 13");
+        }
 
-    // Testing query for the same data
-        auto q = query( ctx.document, "top.arr.1" );
-
-        return true;
+        // Testing query for the same data
+        {
+        // FINISH ME!
+            auto q = query( ctx.document, "top.arr.1" );
+            auto v = q.as_integer();
+        }
+        
+        return false;
     }
 
     // -----------------------------------------------------------------
@@ -106,8 +177,9 @@ namespace arf::tests
                 //.where("race", "orcs")
                 .select("poise");
 
-        return false;
-        //EXPECT(ctx.as_string().value == "hostile", "");
+        EXPECT(ctx.locations().size() == 1, "ambigious");
+        EXPECT(ctx.as_string().has_value(), "no value");
+        EXPECT(ctx.as_string().value() == "hostile", "wrong result");
 
         return true;
     }
@@ -132,7 +204,7 @@ namespace arf::tests
                 .select("poise");
 
         return false;                
-        //EXPECT(res.values().values.size() == 2, "");
+        EXPECT(res.locations().size() == 2, "");
 
         return true;
     }
@@ -208,11 +280,12 @@ namespace arf::tests
         RUN_TEST(dot_path_correctly_split);
         RUN_TEST(find_single_value);
         RUN_TEST(extract_single_value);
-        // RUN_TEST(index_follows_array);
-        // SUBCAT("Extract plural data");
-        // // RUN_TEST(query_plural_results);
-        // RUN_TEST(query_reports_ambiguity);
-        // RUN_TEST(ambiguious_query_will_not_extract_to_single);
+        RUN_TEST(extract_single_value_through_helpers);
+        RUN_TEST(index_follows_array);
+        SUBCAT("Extract plural data");
+        RUN_TEST(query_plural_results);
+        RUN_TEST(query_reports_ambiguity);
+        RUN_TEST(ambiguious_query_will_not_extract_to_single);
         // SUBCAT("Access tables");
         // //RUN_TEST(query_ordinal_table);
         // SUBCAT("Access by identifier");

@@ -400,7 +400,7 @@ namespace arf
             return {err};
         }
 
-        query_result<double> as_bool() const noexcept
+        query_result<bool> as_bool() const noexcept
         {
             query_issue_kind err;
             if (auto v = common_extraction_checks<value_type::boolean>(&err); v != nullptr)
@@ -469,6 +469,27 @@ namespace arf
         q.select(path);
         return q;
     }
+
+    inline query_result<int64_t> get_integer(const document& doc, std::string_view path) noexcept
+    {
+        return query(doc, path).as_integer();
+    }
+
+    inline query_result<double> get_real(const document& doc, std::string_view path) noexcept
+    {
+        return query(doc, path).as_real();
+    }
+
+    inline query_result<std::string> get_string(const document& doc, std::string_view path) noexcept
+    {
+        return query(doc, path).as_string();
+    }
+
+    inline query_result<bool> get_bool(const document& doc, std::string_view path) noexcept
+    {
+        return query(doc, path).as_bool();
+    }
+
 
 } // namespace arf
 
