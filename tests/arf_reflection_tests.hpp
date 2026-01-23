@@ -327,16 +327,15 @@ static bool reflect_partial_prefix_yields_last_valid_item()
         root()
             .top("a")
             .key("x")
-            .index(99); // invalid
+            .index(99); // invalid - can't index a scalar
 
     auto res = inspect(ictx, addr);
 
-    EXPECT(res.steps_inspected == 3, "inspection should stop at index");
-    EXPECT(res.value == nullptr, "no final value");
-
-    // But item should still be the last valid thing: the key value
-    EXPECT(std::holds_alternative<const typed_value*>(res.item),
-           "item should be last resolved value");
+    EXPECT(res.has_error(), "indexing a scalar should be an error");
+    EXPECT(res.steps_inspected == 3, "inspection stops at index error");
+    EXPECT(!res.ok(), "inspection should not be ok");
+    EXPECT(res.value != nullptr, "scalar value preserved despite failed index");
+    EXPECT(std::holds_alternative<document::key_view>(res.item), "item should be the key");
 
     return true;
 }
@@ -494,6 +493,9 @@ static bool structural_children_after_failed_inspection()
             .index(99); // invalid
 
     auto res = inspect(ictx, addr);
+
+    EXPECT(res.has_error(), "should be an error reported");
+    EXPECT(res.value != nullptr, "should have a value");
 
     EXPECT(!res.ok(), "inspection must fail");
 

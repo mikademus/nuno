@@ -21,7 +21,7 @@ namespace arf::tests
 
     bool dot_path_correctly_split()
     {
-        auto const p1 = details::split_dot_path("foo.bar.baz");
+        auto const p1 = split_dot_path("foo.bar.baz");
         EXPECT(p1.size() == 3, "Should find three items");
         EXPECT(p1[0] == "foo", "1st item should be foo");
         EXPECT(p1[1] == "bar", "1st item should be bar");
@@ -29,18 +29,18 @@ namespace arf::tests
 
         return true;
     }
-
+    
     bool find_single_value()
     {
         auto ctx = load(R"(
             world:
                 foo = 42
         )");
-                
+            
         auto q = query(ctx.document, "world.foo");
 
         EXPECT(!q.empty(), "There should be a match");
-        EXPECT(q.addresses().size() == 1, "There should be exactly one match");
+        EXPECT(q.locations().size() == 1, "There should be exactly one match");
 
         return true;
     }
@@ -55,9 +55,10 @@ namespace arf::tests
         auto q = query(ctx.document, "world.foo");
         EXPECT(!q.empty(), "There should be a match");
 
-        auto v = get_integer(ctx.document, "world.foo");
-        EXPECT(v.value.has_value(), "Item should have been found");
-        EXPECT(*v.value == 42, "Incorrect value extracted");
+        return false;
+        //auto v = get_integer(ctx.document, "world.foo");
+        //EXPECT(v.value.has_value(), "Item should have been found");
+        //EXPECT(*v.value == 42, "Incorrect value extracted");
 
         return true;
     }
@@ -105,7 +106,8 @@ namespace arf::tests
                 //.where("race", "orcs")
                 .select("poise");
 
-        EXPECT(ctx.as_string().value == "hostile", "");
+        return false;
+        //EXPECT(ctx.as_string().value == "hostile", "");
 
         return true;
     }
@@ -129,7 +131,8 @@ namespace arf::tests
                 //.where("race", "orcs")
                 .select("poise");
 
-        EXPECT(res.values().values.size() == 2, "");
+        return false;                
+        //EXPECT(res.values().values.size() == 2, "");
 
         return true;
     }
@@ -166,8 +169,8 @@ namespace arf::tests
 
         EXPECT(q.ambiguous(), "Should be multiple matches");
         auto res = q.as_integer();
-        EXPECT(!res.value.has_value(), "Should not have a value");
-        EXPECT(!res.issues.empty(), "Should be a diagnostic report attached");
+        EXPECT(!res.has_value(), "Should not have a value");
+        EXPECT(!q.issues().empty(), "Should be a diagnostic report attached");
 
         return true;
     }
@@ -193,7 +196,8 @@ namespace arf::tests
                 //.where("race", "orcs")
                 .select("poise");
 
-        EXPECT(res.as_string().value.value() == "hostile", "");
+        return false;
+        //EXPECT(res.as_string().value.value() == "hostile", "");
 
         return true;
     }

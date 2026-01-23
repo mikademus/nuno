@@ -306,11 +306,12 @@ namespace arf::reflect
     {
         const document* doc = nullptr;
 
-        std::optional<document::category_view> category;
-        std::optional<document::table_view>    table;
-        std::optional<document::table_row_view>      row;
-        std::optional<document::column_view>   column;
-        const typed_value*                     value = nullptr;
+        std::optional<document::category_view>  category;
+        std::optional<document::table_view>     table;
+        std::optional<document::table_row_view> row;
+        std::optional<document::column_view>    column;
+        std::optional<document::key_view>       key;
+        const typed_value*                      value = nullptr;
     };    
 
 // ------------------------------------------------------------
@@ -398,7 +399,14 @@ namespace arf::reflect
 
         bool fully_inspected() const { return addr && steps_inspected == addr->steps.size(); }
         bool ok()              const { return fully_inspected() && !addr->has_error(); }       
-        bool has_error()       const { return !fully_inspected(); }        
+        bool has_error()       const { return addr && addr->has_error(); }        
+
+        bool is_category() const noexcept { return std::holds_alternative<document::category_view>(item); }
+        bool is_value() const noexcept    { return value != nullptr; }//return std::holds_alternative<document::key_view>(item); }
+        bool is_table() const noexcept    { return std::holds_alternative<document::table_view>(item); }
+        bool is_row() const noexcept      { return std::holds_alternative<document::table_row_view>(item); }
+        bool is_column() const noexcept   { return std::holds_alternative<document::column_view>(item); }
+        //bool is_array() const noexcept    { return value && reflect::is_array(value->type); }
 
         size_t first_error_step() const
         {
@@ -498,6 +506,7 @@ namespace arf::reflect
         ctx.table.reset();
         ctx.row.reset();
         ctx.column.reset();
+        ctx.key.reset();
         ctx.value = nullptr;
 
         inspected out;
@@ -537,7 +546,10 @@ namespace arf::reflect
                     if (!k)
                         error(step_error::key_not_found);
                     else
+                    {
                         ctx.value = &k->value();
+                        ctx.key = k;
+                    }
                 }
             }
 
@@ -720,31 +732,66 @@ namespace arf::reflect
 
             if (diag.state == step_state::error)
                 break;
-
+        
             if (diag.state == step_state::ok)
             {
-                if (ctx.value)         last_valid_item = ctx.value;
-                else if (ctx.column)   last_valid_item = *ctx.column;
-                else if (ctx.row)      last_valid_item = *ctx.row;
-                else if (ctx.table)    last_valid_item = *ctx.table;
-                else if (ctx.category) last_valid_item = *ctx.category;
-            }                
+                if (std::holds_alternative<index_step>(astep.step))
+                {
+                    last_valid_item = ctx.value;
+                }
+                else if (std::holds_alternative<column_step>(astep.step))
+                {
+                    if (ctx.value)
+                        last_valid_item = ctx.value;
+                    else if (ctx.column)
+                        last_valid_item = *ctx.column;
+                }
+                else if (std::holds_alternative<key_step>(astep.step))
+                {
+                    if (ctx.key)
+                    {
+                        // If this is an array value and we might index it,
+                        // store the value pointer instead of the key_view
+                        const auto& val = ctx.key->value();
+                        if (reflect::is_array(val.type))
+                            last_valid_item = &val;
+                        else
+                            last_valid_item = *ctx.key;
+                    }
+                }
+                else if (std::holds_alternative<row_step>(astep.step))
+                {
+                    last_valid_item = *ctx.row;
+                }
+                else if (std::holds_alternative<table_step>(astep.step))
+                {
+                    last_valid_item = *ctx.table;
+                }
+                else if (std::holds_alternative<top_category_step>(astep.step) ||
+                        std::holds_alternative<sub_category_step>(astep.step))
+                {
+                    last_valid_item = *ctx.category;
+                }
+            }
+
         }
 
         out.item = last_valid_item;
         out.addr = addr;
 
-        if (out.ok())
+        // Extract value from item
+        if (auto pv = std::get_if<const typed_value*>(&out.item))
         {
-            if (auto pv = std::get_if<const typed_value*>(&out.item))
-                out.value = *pv;
-            else
-                out.value = nullptr;
+            out.value = *pv;
+        }
+        else if (auto kv = std::get_if<document::key_view>(&out.item))
+        {
+            out.value = &kv->value();
         }
         else
         {
             out.value = nullptr;
-        }   
+        }    
 
         return out;
     }
@@ -778,16 +825,34 @@ namespace arf::reflect
 
         auto query_category = [&](auto&& node) -> structural_query_result
         {
-            // subcategories
-            for (auto sc : node.children())
-                if (auto cat = ctx.doc->category(sc); cat.has_value())
+            // Special case: root category lists top-level categories
+            if (node.is_root())
+            {
+                for (const auto& cat : ctx.doc->categories())
                 {
-                    out.push_back({
-                        structural_child::kind::sub_category,
-                        cat->name(),
-                        0
-                    });
+                    if (!cat.is_root() && cat.parent()->is_root())
+                    {
+                        out.push_back({
+                            structural_child::kind::top_category,
+                            cat.name(),
+                            0
+                        });
+                    }
                 }
+            }
+            else
+            {
+                // Non-root: list subcategories normally
+                for (auto sc : node.children())
+                    if (auto cat = ctx.doc->category(sc); cat.has_value())
+                    {
+                        out.push_back({
+                            structural_child::kind::sub_category,
+                            cat->name(),
+                            0
+                        });
+                    }
+            }
 
             // keys
             for (auto k : node.keys())
@@ -874,6 +939,9 @@ namespace arf::reflect
 
             else if constexpr (std::is_same_v<T, const typed_value*>)
                 query_value(node);
+
+            else if constexpr (std::is_same_v<T, document::key_view>)
+                query_value(&node.value());
         }, item);
 
         return out;
