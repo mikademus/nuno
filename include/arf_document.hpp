@@ -142,8 +142,15 @@ namespace arf
         {
             typedef table_row_id id_type;
             id_type _id() const noexcept { return id; }
-            std::string_view _name() const noexcept = delete;
-            
+            std::string_view _name() const noexcept
+            {
+                if (cells.empty()) return "";
+                auto const & cell = cells.front();
+                if (cell.source_literal.has_value())
+                    return *cell.source_literal;
+                return "";
+            }
+
             table_row_id             id;
             table_id                 table;
             category_id              owner;
@@ -275,6 +282,7 @@ namespace arf
         const row_node* node;
 
         table_row_id id() const noexcept { return node->id; }
+        std::string_view name() const noexcept { return node->_name(); }
         std::span<const typed_value> cells() const noexcept { return node->cells; }
 
         category_view owner() const noexcept;

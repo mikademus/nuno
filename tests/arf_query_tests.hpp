@@ -22,7 +22,7 @@ namespace arf::tests
 
     bool dot_path_correctly_split()
     {
-        auto const p1 = split_dot_path("foo.bar.baz");
+        auto const p1 = details::split_dot_path("foo.bar.baz");
         EXPECT(p1.size() == 3, "Should find three items");
         EXPECT(p1[0] == "foo", "1st item should be foo");
         EXPECT(p1[1] == "bar", "1st item should be bar");
@@ -181,9 +181,9 @@ namespace arf::tests
                 //.where("race", "orcs")
                 .select("poise");
 
-        EXPECT(ctx.locations().size() == 1, "ambigious");
-        EXPECT(ctx.as_string().has_value(), "no value");
-        EXPECT(ctx.as_string().value() == "hostile", "wrong result");
+        EXPECT(ctx.locations().size() == 1, "Should not be multiple matches");
+        EXPECT(ctx.as_string().has_value(), "Result should be string type");
+        EXPECT(ctx.as_string().value() == "hostile", "The result is not the expected string");
 
         return true;
     }
@@ -202,12 +202,21 @@ namespace arf::tests
                   orcs   drunk
         )");
 
-        auto res =
+        auto q =
+            //query(ctx.document, "world")
+            //    //.where("race", "orcs")
+            //    .select("poise");
             query(ctx.document, "world")
-                //.where("race", "orcs")
-                .select("poise");
+                .table(0)
+                .rows()
+                .where(predicate{"race", 
+                                predicate_op::eq, 
+                                "orc"})
+                .project("poise");
 
-        EXPECT(res.locations().size() == 2, "Should return two matching rows");
+        EXPECT(q.locations().size() == 2, "Should resolve two matching rows");
+        EXPECT(q.locations().front().kind == location_kind::row_scope,
+            "Plural query resolves to rows, not values");
 
         return true;
     }
@@ -227,7 +236,7 @@ namespace arf::tests
         auto res = query(ctx.document, "foo.bar");
 
         EXPECT(res.ambiguous(), "Should be multiple matches");
-        //EXPECT(!res.issues().empty(), "Should be a diagnostic report attached");
+        EXPECT(!res.issues().empty(), "Should be a diagnostic report attached");
 
         return true;
     }
@@ -249,12 +258,110 @@ namespace arf::tests
 
         return true;
     }
-
+    
     // -----------------------------------------------------------------
-    // Ordinal table access
+    // Table access
     // -----------------------------------------------------------------
 
-    bool query_ordinal_table()
+    bool find_single_table()
+    {
+        auto ctx = load(R"(
+            topcat:
+                # name  id
+                  foo   42
+                  bar   13
+        )");
+            
+        auto q = query(ctx.document, "topcat").table(0);
+
+        EXPECT(!q.empty(), "The query should resolve");
+        EXPECT(q.locations().size() == 1, "There should be exactly one match");
+        EXPECT(q.locations().front().kind == location_kind::table_scope, "The match should be a table");
+
+        return true;
+    }
+
+    bool find_multiple_tables()
+    {
+        auto ctx = load(R"(
+            topcat:
+                # name  id
+                  foo   42
+                  bar   13
+
+                # qux  quux
+                  aaa  baaa
+                  bbb  cbbb
+        )");
+            
+        auto q = query(ctx.document, "topcat").tables();
+
+        EXPECT(!q.empty(), "The query should resolve");
+        EXPECT(q.locations().size() == 2, "There should be two matches");
+        for (auto const & i : q.locations())
+            EXPECT(i.kind == location_kind::table_scope, "The matches should all be tables");
+
+        return true;
+    }
+
+    bool enumerate_all_rows_in_table()
+    {
+        auto ctx = load(R"(
+            top:
+                # a  b
+                  1  2
+                  3  4
+        )");
+
+        auto q = query(ctx.document, "top").table(0).rows();
+
+        EXPECT(!q.empty(), "Rows should resolve");
+        EXPECT(q.locations().size() == 2, "Should enumerate both rows");
+
+        for (auto const& loc : q.locations())
+            EXPECT(loc.kind == location_kind::row_scope, "All matches should be rows");
+
+        return true;
+    }   
+
+    bool enumerate_named_rows_in_table()
+    {
+        auto ctx = load(R"(
+            top:
+                # name  value
+                  foo   1
+                  foo   2
+                  bar   3
+                  qux   4
+                  qux   5
+        )");
+
+        auto table = query(ctx.document, "top").table(0);
+        EXPECT(!table.empty(), "table should resolve");
+        
+        auto q0 = query(ctx.document, "top").table(0).rows();
+        EXPECT(!q0.empty(), "Rows should resolve");
+        EXPECT(q0.locations().size() == 5, "Should enumerate all rows");
+        
+        for (auto const& loc : q0.locations())
+            EXPECT(loc.kind == location_kind::row_scope, "All matches should be rows");
+
+        auto q1 = query(ctx.document, "top").table(0).row("foo");
+        EXPECT(!q1.empty(), "query for 'foo' rows should resolve");
+        EXPECT(q1.locations().size() == 2, "there should be 2 'foo'");
+
+        auto q2 = query(ctx.document, "top").table(0).row("bar");
+        EXPECT(!q2.empty(), "query for 'bar' rows should resolve");
+        EXPECT(q2.locations().size() == 1, "there should be 1 'bar'");
+
+        auto q3 = query(ctx.document, "top").table(0).row("qux");
+        EXPECT(!q3.empty(), "query for 'baz' rows should resolve");
+        EXPECT(q3.locations().size() == 2, "there should be 2 'qux'");
+
+        return true;
+    }   
+
+    bool search_ordinal_table()
     {
         auto ctx = load(R"(
             world:
@@ -267,15 +374,36 @@ namespace arf::tests
 
         auto res =
             query(ctx.document, "world")
-                //.table(1)
+                .table(1)
                 //.where("race", "orcs")
                 .select("poise");
 
-        return false;
-        //EXPECT(res.as_string().value.value() == "hostile", "");
+        EXPECT(!res.empty(), "Query should resolve");
+        auto v = res.as_string();
+        EXPECT(v.has_value(), "result should be string type");
+        EXPECT(v.value() == "hostile", "result is incorrect string");
 
         return true;
     }
+
+    bool row_filter_is_composable()
+    {
+        auto ctx = load(R"(
+            top:
+                # name value
+                foo  1
+                foo  2
+                bar  3
+        )");
+
+        auto q = query(ctx.document, "top")
+                    .table(0)
+                    .rows()
+                    .row("foo");
+
+        EXPECT(q.locations().size() == 2, "rows().row(name) must work");
+        return true;
+    }    
 
     void run_query_tests()
     {
@@ -289,10 +417,15 @@ namespace arf::tests
         RUN_TEST(query_plural_results);
         RUN_TEST(query_reports_ambiguity);
         RUN_TEST(ambiguious_query_will_not_extract_to_single);
-        // SUBCAT("Access tables");
-        // //RUN_TEST(query_ordinal_table);
-        // SUBCAT("Access by identifier");
-        // //RUN_TEST(query_table_row_by_string_id);
+        SUBCAT("Access tables");
+        RUN_TEST(find_single_table);
+        RUN_TEST(find_multiple_tables);
+        RUN_TEST(enumerate_all_rows_in_table);
+        RUN_TEST(enumerate_named_rows_in_table);
+        RUN_TEST(row_filter_is_composable);
+        RUN_TEST(search_ordinal_table);
+        SUBCAT("Access by identifier");
+        RUN_TEST(query_table_row_by_string_id);
     }
 }
 
