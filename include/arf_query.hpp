@@ -9,7 +9,7 @@
 //
 // - Dot-path selection: query(doc, "world.config.seed")
 // - Fluent refinement: query(doc, "items").table(0).rows()
-// - Predicate filtering: .where(predicate{...})
+// - Predicate filtering: .where(predicate)
 // - Singular/plural extraction: .as_integer() or .integers()
 //
 // See query_interface.md for detailed usage patterns.
@@ -118,13 +118,14 @@ namespace arf
 // Query predicates [ for .where(pred) ]
 // =====================================================================
 //
-// Predicate for row filtering
+// Predicates for row filtering
 //
 // Predicates filter rows in table contexts based on column values.
 //
 // Construction:
-//   predicate{"column_name", predicate_op::eq, value}
-//   predicate{column_index, predicate_op::gt, value}
+//   Use the factory functions:
+//      eq("column_name", value)
+//      eq(column_index, value)
 //
 // Supported operators:
 //   eq, ne, lt, le, gt, ge
@@ -134,7 +135,7 @@ namespace arf
 // Example:
 //   query(doc, "items")
 //       .table(0)
-//       .where(predicate{"rarity", predicate_op::eq, "legendary"})
+//       .where(eq("rarity", "legendary"))
 //
 //----------------------------------------------------------------------
     enum class predicate_op
@@ -153,6 +154,22 @@ namespace arf
         predicate_op op;
         typed_value  rhs;
     };
+
+    template<typename T>
+    concept column_ref_type = std::is_integral_v<T> || std::convertible_to<T, std::string_view>;
+
+    template<column_ref_type Col, typename T>
+    predicate eq(Col col, T val) { return {col, predicate_op::eq, detail::make_typed_value(val)}; }
+    template<column_ref_type Col, typename T>
+    predicate ne(Col col, T val) { return {col, predicate_op::ne, detail::make_typed_value(val)}; }
+    template<column_ref_type Col, typename T>
+    predicate lt(Col col, T val) { return {col, predicate_op::lt, detail::make_typed_value(val)}; }
+    template<column_ref_type Col, typename T>
+    predicate le(Col col, T val) { return {col, predicate_op::le, detail::make_typed_value(val)}; }
+    template<column_ref_type Col, typename T>
+    predicate gt(Col col, T val) { return {col, predicate_op::gt, detail::make_typed_value(val)}; }
+    template<column_ref_type Col, typename T>
+    predicate ge(Col col, T val) { return {col, predicate_op::ge, detail::make_typed_value(val)}; }
 
 //======================================================================
 // Query handle
@@ -185,7 +202,7 @@ namespace arf
     {
         template <typename T>
         friend struct query_result;
-        
+
     public:
         explicit query_handle(const document& doc) noexcept : doc_(&doc) {}
 
@@ -484,7 +501,6 @@ namespace arf
             const value_location& parent,
             std::string_view /*token*/)
         {
-std::cout << "    -- trace: enumerate_table_children()\n";
             std::vector<value_location> out;
 
             reflect::inspect_context ctx{ &doc };
@@ -513,7 +529,6 @@ std::cout << "    -- trace: enumerate_table_children()\n";
             const value_location& parent,
             std::string_view token)
         {
-std::cout << "    -- trace: enumerate_row_children(" << token << ")\n";
             std::vector<value_location> out;
 
             reflect::inspect_context ctx{ &doc };
@@ -549,13 +564,12 @@ std::cout << "    -- trace: enumerate_row_children(" << token << ")\n";
             const value_location& parent,
             std::string_view token)
         {
-std::cout << "    -- trace: enumerate_value_children(" << token << ")\n";
             std::vector<value_location> out;
 
             if (!parent.value_ptr)
                 return out;
 
-            if (!reflect::is_array(parent.value_ptr->type))
+            if (!is_array(parent.value_ptr->type))
                 return out;
 
             // index token must be numeric
@@ -610,28 +624,16 @@ std::cout << "    -- trace: enumerate_value_children(" << token << ")\n";
             switch (loc.kind)
             {
                 case location_kind::category_scope:
-                {   
-//std::cout << "    -- trace: location_kind::category_scope\n"; 
                     return enumerate_category_children(doc, loc, token);
-                }
 
                 case location_kind::table_scope:
-                {   
-std::cout << "    -- trace: location_kind::table_scope\n"; 
                     return enumerate_table_children(doc, loc, token);
-                }
 
                 case location_kind::row_scope:
-                {   
-std::cout << "    -- trace: location_kind::row_scope\n"; 
                     return enumerate_row_children(doc, loc, token);
-                }
 
                 case location_kind::terminal_value:
-                {   
-std::cout << "    -- trace: location_kind::terminal_value\n"; 
                     return enumerate_value_children(doc, loc, token);
-                }
             }
 
             return {};
@@ -936,100 +938,88 @@ std::cout << "    -- trace: location_kind::terminal_value\n";
         return *this;
     }
 
-    inline bool
-    evaluate_predicate(
-        const typed_value& cell,
-        const predicate&   pred)
+    bool evaluate_predicate(const typed_value& lhs, const predicate& pred)
     {
-        // Reject unresolved or contaminated values early
-        if (cell.type == value_type::unresolved)
-            return false;
-
         const typed_value& rhs = pred.rhs;
 
-        if (rhs.type == value_type::unresolved)
+        // Semantic sanity
+        if (!is_valid(lhs) || !is_valid(rhs))
             return false;
 
-        // Types must match exactly (for now)
-        if (cell.type != rhs.type)
+        // Arrays are explicitly unsupported
+        if (is_array(lhs) || is_array(rhs))
             return false;
 
-        switch (cell.type)
+        // --------
+        // Numeric
+        // --------
+        if (is_numeric(lhs) && is_numeric(rhs))
         {
-            case value_type::integer:
-            {
-                const auto lhs = std::get<int64_t>(cell.val);
-                const auto r   = std::get<int64_t>(rhs.val);
+            const double l =
+                lhs.type == value_type::integer
+                    ? static_cast<double>(std::get<int64_t>(lhs.val))
+                    : std::get<double>(lhs.val);
 
-                switch (pred.op)
-                {
-                    case predicate_op::eq: return lhs == r;
-                    case predicate_op::ne: return lhs != r;
-                    case predicate_op::lt: return lhs <  r;
-                    case predicate_op::le: return lhs <= r;
-                    case predicate_op::gt: return lhs >  r;
-                    case predicate_op::ge: return lhs >= r;
-                }
-                break;
+            const double r =
+                rhs.type == value_type::integer
+                    ? static_cast<double>(std::get<int64_t>(rhs.val))
+                    : std::get<double>(rhs.val);
+
+            switch (pred.op)
+            {
+                case predicate_op::eq: return l == r;
+                case predicate_op::ne: return l != r;
+                case predicate_op::lt: return l <  r;
+                case predicate_op::le: return l <= r;
+                case predicate_op::gt: return l >  r;
+                case predicate_op::ge: return l >= r;
             }
 
-            case value_type::decimal:
-            {
-                const auto lhs = std::get<double>(cell.val);
-                const auto r   = std::get<double>(rhs.val);
-
-                switch (pred.op)
-                {
-                    case predicate_op::eq: return lhs == r;
-                    case predicate_op::ne: return lhs != r;
-                    case predicate_op::lt: return lhs <  r;
-                    case predicate_op::le: return lhs <= r;
-                    case predicate_op::gt: return lhs >  r;
-                    case predicate_op::ge: return lhs >= r;
-                }
-                break;
-            }
-
-            case value_type::string:
-            {
-                const auto& lhs = std::get<std::string>(cell.val);
-                const auto& r   = std::get<std::string>(rhs.val);
-
-                switch (pred.op)
-                {
-                    case predicate_op::eq: return lhs == r;
-                    case predicate_op::ne: return lhs != r;
-                    case predicate_op::lt: return lhs <  r;
-                    case predicate_op::le: return lhs <= r;
-                    case predicate_op::gt: return lhs >  r;
-                    case predicate_op::ge: return lhs >= r;
-                }
-                break;
-            }
-
-            case value_type::boolean:
-            {
-                const auto lhs = std::get<bool>(cell.val);
-                const auto r   = std::get<bool>(rhs.val);
-
-                switch (pred.op)
-                {
-                    case predicate_op::eq: return lhs == r;
-                    case predicate_op::ne: return lhs != r;
-                    default:
-                        return false; // ordering on bool is nonsense
-                }
-            }
-
-            // Explicitly unsupported for predicates (for now)
-            case value_type::string_array:
-            case value_type::int_array:
-            case value_type::float_array:
-            case value_type::date:
-            default:
-                return false;
+            return false;
         }
 
+        // --------
+        // String
+        // --------
+        if (is_string(lhs) && is_string(rhs))
+        {
+            const auto& l = std::get<std::string>(lhs.val);
+            const auto& r = std::get<std::string>(rhs.val);
+
+            switch (pred.op)
+            {
+                case predicate_op::eq: return l == r;
+                case predicate_op::ne: return l != r;
+                case predicate_op::lt: return l <  r;
+                case predicate_op::le: return l <= r;
+                case predicate_op::gt: return l >  r;
+                case predicate_op::ge: return l >= r;
+            }
+
+            return false;
+        }
+
+        // --------
+        // Boolean
+        // --------
+        if (is_boolean(lhs) && is_boolean(rhs))
+        {
+            const bool l = std::get<bool>(lhs.val);
+            const bool r = std::get<bool>(rhs.val);
+
+            switch (pred.op)
+            {
+                case predicate_op::eq: return l == r;
+                case predicate_op::ne: return l != r;
+                default:
+                    // Ordering comparisons on booleans are meaningless
+                    return false;
+            }
+        }
+
+        // --------
+        // Everything else
+        // --------
         return false;
     }
 
@@ -1048,6 +1038,7 @@ std::cout << "    -- trace: location_kind::terminal_value\n";
         if (has_tables)
             rows();  // Expands all tables to rows
 
+int i = 0;
     // Main filter:
     // -----------------------------------------------
         for (const auto& loc : locations_)
@@ -1089,9 +1080,7 @@ std::cout << "    -- trace: location_kind::terminal_value\n";
                 continue;
 
             if (evaluate_predicate(cell, pred))
-            {
                 next.push_back(loc);
-            }
         }
 
         locations_ = std::move(next);

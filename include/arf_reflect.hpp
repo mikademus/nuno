@@ -328,13 +328,6 @@ namespace arf::reflect
         return tbls[ordinal];
     }
 
-    inline bool is_array(value_type v)
-    {
-        return v == value_type::string_array
-            || v == value_type::int_array
-            || v == value_type::float_array;
-    }
-
 // ------------------------------------------------------------
 // inspection results
 // ------------------------------------------------------------
@@ -753,7 +746,7 @@ namespace arf::reflect
                         // If this is an array value and we might index it,
                         // store the value pointer instead of the key_view
                         const auto& val = ctx.key->value();
-                        if (reflect::is_array(val.type))
+                        if (is_array(val.type))
                             last_valid_item = &val;
                         else
                             last_valid_item = *ctx.key;

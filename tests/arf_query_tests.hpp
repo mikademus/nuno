@@ -196,7 +196,7 @@ namespace arf::tests
     {
         auto ctx = load(R"(
             world:
-                # race poise
+                # race   poise
                   elves  friendly
                   orcs   hostile
                   orcs   drunk
@@ -209,10 +209,11 @@ namespace arf::tests
             query(ctx.document, "world")
                 .table(0)
                 .rows()
-                .where(predicate{"race", 
-                                predicate_op::eq, 
-                                "orc"})
-                .project("poise");
+                .where(eq("race", "orcs"));
+                // .where(predicate{"race", 
+                //                 predicate_op::eq, 
+                //                 "orcs"});
+                //.project("poise");
 
         EXPECT(q.locations().size() == 2, "Should resolve two matching rows");
         EXPECT(q.locations().front().kind == location_kind::row_scope,
@@ -403,6 +404,40 @@ namespace arf::tests
 
         EXPECT(q.locations().size() == 2, "rows().row(name) must work");
         return true;
+    }
+
+    bool numeric_promotion()
+    {
+        auto ctx = load(R"(
+            npc:
+                # name   hp:int
+                  npc1   12
+                  npc2   11
+                  npc3   10
+                  npc4   9
+                  npc5   8
+        )");
+
+        bool found_hp = false;
+        for (auto c : ctx.document.columns())
+            if (c.name() == "hp")
+            {
+                found_hp = true;
+                EXPECT(c.type() == value_type::integer, "tested column should be of integer type");
+            }
+
+        EXPECT(found_hp, "there should be a column named 'hp'");
+
+        auto q = query(ctx.document, "npc").table(0).rows();
+        EXPECT(!q.empty(), "Query should resolve");
+
+        auto q1 = query(ctx.document, "npc").table(0).where(lt("hp", 10));
+        EXPECT(q1.locations().size() == 2,"integer < integer failed");
+
+        auto q2 = query(ctx.document, "npc").table(0).where(lt("hp", 10.5));
+        EXPECT(q2.locations().size() == 3, "integer < decimal failed");
+
+        return true;
     }    
 
     void run_query_tests()
@@ -424,6 +459,8 @@ namespace arf::tests
         RUN_TEST(enumerate_named_rows_in_table);
         RUN_TEST(row_filter_is_composable);
         RUN_TEST(search_ordinal_table);
+        SUBCAT("Row access by predicate");
+        RUN_TEST(numeric_promotion);
         SUBCAT("Access by identifier");
         RUN_TEST(query_table_row_by_string_id);
     }
