@@ -449,7 +449,47 @@ namespace arf
             reflect::inspect_context ctx{ &doc };
             auto insp = reflect::inspect(ctx, parent.addr);
 
-            // Structural enumeration is allowed even on partial inspection
+            // ============================================================
+            // Handle table ordinal syntax: #0, #1, #2, etc.
+            // ============================================================
+            if (token.starts_with('#') && token.size() > 1)
+            {
+                auto ordinal_str = token.substr(1);
+                size_t target_ordinal = 0;
+                
+                auto [ptr, ec] = std::from_chars(
+                    ordinal_str.data(),
+                    ordinal_str.data() + ordinal_str.size(),
+                    target_ordinal
+                );
+                
+                // Valid ordinal parsed - find matching table
+                if (ec == std::errc{} && ptr == ordinal_str.data() + ordinal_str.size())
+                {
+                    for (const auto& child : insp.structural_children(ctx))
+                    {
+                        using st = reflect::structural_child;
+                        
+                        if (child.kind == st::kind::table && child.ordinal == target_ordinal)
+                        {
+                            auto child_addr = insp.extend_address(child);
+                            out.push_back({
+                                child_addr,
+                                location_kind::table_scope,
+                                nullptr
+                            });
+                            return out;  // Found the table, we're done
+                        }
+                    }
+                }
+                
+                // If we get here, ordinal was invalid or table not found
+                return out;  // Return empty
+            }
+
+            // ============================================================
+            // Normal name-based matching
+            // ============================================================
             for (const auto& child : insp.structural_children(ctx))
             {
                 using st = reflect::structural_child;
@@ -486,7 +526,7 @@ namespace arf
                         assert(false && "only keys and arrays allowed");
                     }                  
                 }
-                // Tables
+                // Tables (by name - rare but supported)
                 else if (child.kind == st::kind::table)
                 {
                     out.push_back({

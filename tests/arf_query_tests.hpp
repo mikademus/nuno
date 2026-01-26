@@ -25,8 +25,8 @@ namespace arf::tests
         auto const p1 = details::split_dot_path("foo.bar.baz");
         EXPECT(p1.size() == 3, "Should find three items");
         EXPECT(p1[0] == "foo", "1st item should be foo");
-        EXPECT(p1[1] == "bar", "1st item should be bar");
-        EXPECT(p1[2] == "baz", "1st item should be baz");
+        EXPECT(p1[1] == "bar", "2nd item should be bar");
+        EXPECT(p1[2] == "baz", "3rd item should be baz");
 
         return true;
     }
@@ -356,9 +356,9 @@ namespace arf::tests
         return true;
     }   
 
-    bool search_ordinal_table()
+    doc_context script_two_tables()
     {
-        auto ctx = load(R"(
+        return load(R"(
             world:
                 # race   poise
                   elves  friendly
@@ -366,7 +366,27 @@ namespace arf::tests
                 # race  poise
                   orcs  hostile
         )");
+    }
 
+    bool select_table_by_dotpath()
+    {
+        auto ctx = script_two_tables();
+        auto res =
+            query(ctx.document, "world.#1")
+                .where(eq("race", "orcs"))
+                .project("poise");
+
+        EXPECT(!res.empty(), "Query should resolve");
+        auto v = res.as_string();
+        EXPECT(v.has_value(), "result should be string type");
+        EXPECT(v.value() == "hostile", "result is incorrect string");
+
+        return true;
+    }
+
+    bool select_table_by_flowing_syntax()
+    {
+        auto ctx = script_two_tables();
         auto res =
             query(ctx.document, "world")
                 .table(1)
@@ -385,10 +405,10 @@ namespace arf::tests
     {
         auto ctx = load(R"(
             top:
-                # name value
-                foo  1
-                foo  2
-                bar  3
+                # name  value
+                  foo   1
+                  foo   2
+                  bar   3
         )");
 
         auto q = query(ctx.document, "top")
@@ -448,8 +468,6 @@ namespace arf::tests
 
         auto q = query(ctx.document, "npc").where(ge("hp", 10)).project("name", "race");
 
-        for (const auto & l : q.locations())
-            std::cout << *l.value_ptr->source_literal << std::endl;
         EXPECT(!q.locations().empty(), "Query should have resolved");
         EXPECT(q.locations().size() == 6, "There should be six matches");
 
@@ -477,13 +495,15 @@ namespace arf::tests
         SUBCAT("Access tables");
         RUN_TEST(find_single_table);
         RUN_TEST(find_multiple_tables);
+        RUN_TEST(select_table_by_dotpath);
+        RUN_TEST(select_table_by_flowing_syntax);
+        SUBCAT("Access table rows");
         RUN_TEST(enumerate_all_rows_in_table);
         RUN_TEST(enumerate_named_rows_in_table);
         RUN_TEST(row_filter_is_composable);
-        RUN_TEST(search_ordinal_table);
         SUBCAT("Row access by predicate");
         RUN_TEST(numeric_promotion);
-        SUBCAT("Access by identifier");
+        SUBCAT("Row access by identifier");
         RUN_TEST(query_table_row_by_string_id);
         RUN_TEST(projected_subset);
     }
