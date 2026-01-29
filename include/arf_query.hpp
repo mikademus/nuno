@@ -82,13 +82,13 @@ namespace arf
     enum class query_issue_kind
     {
         none,
-        empty,              // enumeration returned empty result set
-        not_found,          // path does not resolve
+        not_found,          // path does not resolve (structural navigation failed)
         invalid_index,      // OOB index / the index doesn't exist 
+        empty_result,       // filtering/enumeration produced empty set
         ambiguous,          // multiple matches when singular expected
         type_mismatch,      // value is of another type than requested
         conversion_failed,  // attempt to convert value between types failed
-        no_literal,         // the source_literal member of the value is empty
+        missing_literal,    // the source_literal member of the value is empty
         not_a_value,        // the queried address is not a value terminal
     };
 
@@ -98,13 +98,13 @@ namespace arf
         {
             using enum query_issue_kind;
             case none: return "none";
-            case empty: return "empty";
+            case empty_result: return "empty result";
             case not_found: return "not_found";
             case invalid_index: return "invalid_index";
             case ambiguous: return "ambiguous";
             case type_mismatch: return "type_mismatch";
             case conversion_failed: return "conversion_failed";
-            case no_literal: return "no_literal";
+            case missing_literal: return "no_literal";
             case not_a_value: return "not_a_value";
             default: return "unknown";
         }
@@ -233,12 +233,22 @@ namespace arf
 // outlive all query handles.
 //
 //-----------------------------------------------------------------------
+
     class query_handle
     {
-        template <typename T>
-        friend struct query_result;
+        template <typename T> friend struct query_result;        
 
     public:
+        struct axis_selection
+        {
+            std::optional<std::string_view> row;
+            std::optional<std::string_view> column;
+
+            void reset() noexcept { row.reset(); column.reset(); }
+            bool empty() const noexcept { return !row && !column; }
+            bool complete() const noexcept { return row.has_value() && column.has_value(); }
+        };
+
         explicit query_handle(const document& doc) noexcept : doc_(&doc) {}
 
         // --------------------------------------------------------------
@@ -258,9 +268,15 @@ namespace arf
         query_handle& row(size_t ordinal);
         query_handle& row(std::string_view name);
 
-        query_handle& columns() { return *this; }
-        query_handle& column(size_t ordinal) { return *this; }
-        query_handle& column(std::string_view name) { return *this; }
+        query_handle& columns();
+        query_handle& column(size_t ordinal);
+        query_handle& column(std::string_view name);
+
+        // --------------------------------------------------------------
+        // Array element selector
+        // --------------------------------------------------------------
+
+        query_handle& index(size_t ordinal);
 
         // ------------------------------------------------------------
         // where() 
@@ -297,7 +313,6 @@ namespace arf
             return project_impl(cols);
         };        
 
-
         // --------------------------------------------------------------
         // Status of the query (of the result)
         // --------------------------------------------------------------
@@ -328,6 +343,10 @@ namespace arf
         const document*                   doc_ { nullptr };
         std::vector<value_location>       locations_;
         mutable std::vector<query_issue>  issues_;
+        axis_selection                    pending_axis_;
+
+        void flush_pending_axis_();
+        bool all_locations_are(location_kind scope) const noexcept;
 
         // Note: may add ambiguity diagnostic to issues_ (mutable)
         template<value_type vt>
@@ -938,33 +957,11 @@ namespace arf
     // Core resolver loop
     // --------------------------------------------------------------
 
-        struct axis_selection
-        {
-            std::optional<std::string_view> row;
-            std::optional<std::string_view> column;
-
-            void reset() noexcept
-            {
-                row.reset();
-                column.reset();
-            }
-
-            bool empty() const noexcept
-            {
-                return !row && !column;
-            }
-
-            bool complete() const noexcept
-            {
-                return row.has_value() && column.has_value();
-            }
-        };
-
         inline std::vector<value_location>
         resolve_axis_selections(
             const document& doc,
             const std::vector<value_location>& input,
-            axis_selection& axis)
+            query_handle::axis_selection& axis)
         {
             std::vector<value_location> out;
 
@@ -1114,7 +1111,7 @@ namespace arf
             const document& doc,
             const working_set& current,
             std::string_view token,
-            axis_selection& axis)
+            query_handle::axis_selection& axis)
         {
             // Axis tokens: do not enumerate yet
             if (is_row_selector(token))
@@ -1146,7 +1143,7 @@ namespace arf
             std::span<const std::string_view> segments)
         {
             working_set current;
-            axis_selection axis;
+            query_handle::axis_selection axis;
 
             // Seed: root category scope
             current.push_back({
@@ -1235,7 +1232,7 @@ namespace arf
         if (locations_.empty())
         {
             issues_.push_back({
-                query_issue_kind::empty,
+                query_issue_kind::not_found,
                 std::string(path),
                 segments.empty() ? 0 : segments.size() - 1
             });
@@ -1286,7 +1283,7 @@ namespace arf
         if (locations_.empty())
         {
             issues_.push_back({
-                query_issue_kind::empty,
+                query_issue_kind::empty_result,
                 "tables()",
                 0
             });
@@ -1353,10 +1350,12 @@ namespace arf
 
         locations_ = std::move(next);
 
+        flush_pending_axis_();
+
         if (locations_.empty())
         {
             issues_.push_back({
-                query_issue_kind::empty,
+                query_issue_kind::empty_result,
                 "rows()",
                 0
             });
@@ -1389,57 +1388,275 @@ namespace arf
         locations_.clear();
         locations_.push_back(chosen);
 
+        flush_pending_axis_();
+
         return *this;
+    }
+
+    bool query_handle::all_locations_are(location_kind scope) const noexcept
+    {
+        for (const auto& loc : locations_)
+            if (loc.kind != scope)
+                return false;
+        return true;
     }
 
     query_handle& query_handle::row(std::string_view name)
     {
+        issues_.clear();
+
+        // If already in row scope, filter existing rows (progressive filtering)
+        if (all_locations_are(location_kind::row_scope))
+        {
+            std::vector<value_location> filtered;
+            
+            for (const auto& loc : locations_)
+            {
+                reflect::inspect_context ctx{ doc_ };
+                auto insp = reflect::inspect(ctx, loc.addr);
+                
+                if (auto row_view = std::get_if<document::table_row_view>(&insp.item))
+                {
+                    if (row_view->name() == name)
+                        filtered.push_back(loc);
+                }
+            }
+            
+            locations_ = std::move(filtered);
+            
+            if (locations_.empty())
+            {
+                issues_.push_back({
+                    query_issue_kind::not_found,
+                    std::string("row(\"") + std::string(name) + "\")",
+                    0
+                });
+            }
+            
+            return *this;
+        }
+
+        // Set pending axis
+        pending_axis_.row = name;
+
+        // Resolve immediately if:
+        // 1. Column is also pending (cell selection)
+        // 2. We're in table/category scope (row selection without column)
+        bool should_resolve = pending_axis_.column.has_value() ||
+                            !locations_.empty() && 
+                            (locations_.front().kind == location_kind::table_scope ||
+                            locations_.front().kind == location_kind::category_scope);
+
+        if (should_resolve)
+        {
+            locations_ = details::resolve_axis_selections(*doc_, locations_, pending_axis_);
+            pending_axis_.reset();
+        }
+
+        if (locations_.empty())
+        {
+            issues_.push_back({
+                query_issue_kind::empty_result,
+                std::string("row(\"") + std::string(name) + "\")",
+                0
+            });
+        }
+
+        return *this;
+    }
+
+    query_handle& query_handle::columns()
+    {
         std::vector<value_location> next;
         issues_.clear();
 
-        // If we're still at table level, expand first
-        bool has_table = false;
-        for (auto const& loc : locations_)
-            if (loc.kind == location_kind::table_scope)
-                has_table = true;
+        for (const auto& loc : locations_)
+        {
+            // row → cells
+            if (loc.kind == location_kind::row_scope)
+            {
+                reflect::inspect_context ctx{ doc_ };
+                auto insp = reflect::inspect(ctx, loc.addr);
 
-        if (has_table)
-            rows();   // expands table → rows
+                for (const auto& child : insp.structural_children(ctx))
+                {
+                    if (child.kind != reflect::structural_child::kind::column)
+                        continue;
+
+                    auto child_addr = insp.extend_address(child);
+                    auto child_insp = reflect::inspect(ctx, child_addr);
+
+                    if (child_insp.value)
+                    {
+                        next.push_back({
+                            child_addr,
+                            location_kind::terminal_value,
+                            child_insp.value
+                        });
+                    }
+                }
+            }
+
+            // table → rows → cells
+            else if (loc.kind == location_kind::table_scope)
+            {
+                auto cells = details::enumerate_table_to_cells(*doc_, loc, "");
+                next.insert(next.end(), cells.begin(), cells.end());
+            }
+
+            // category → tables → rows → cells
+            else if (loc.kind == location_kind::category_scope)
+            {
+                auto cells = details::enumerate_category_to_cells(*doc_, loc, "");
+                next.insert(next.end(), cells.begin(), cells.end());
+            }
+        }
+
+        locations_ = std::move(next);
+
+        flush_pending_axis_();
+
+        if (locations_.empty())
+        {
+            issues_.push_back({
+                query_issue_kind::empty_result,
+                "columns()",
+                0
+            });
+        }
+
+        return *this;
+    }
+
+    query_handle& query_handle::column(size_t index)
+    {
+        std::vector<value_location> next;
+        issues_.clear();
+
+        // Ensure column context exists (commutative)
+        columns();
 
         for (const auto& loc : locations_)
         {
-            if (loc.kind != location_kind::row_scope)
+            if (loc.kind != location_kind::terminal_value || !loc.value_ptr)
                 continue;
 
             reflect::inspect_context ctx{ doc_ };
             auto insp = reflect::inspect(ctx, loc.addr);
 
-            if (!insp.ok())
-                continue;
+            for (const auto& child : insp.structural_children(ctx))
+            {
+                if (child.kind == reflect::structural_child::kind::column &&
+                    child.ordinal == index)
+                {
+                    auto child_addr = insp.extend_address(child);
+                    auto child_insp = reflect::inspect(ctx, child_addr);
 
-            auto row_view = std::get_if<document::table_row_view>(&insp.item);
-            if (!row_view)
-                continue;
-
-            if (row_view->name() == name)
-                next.push_back(loc);
+                    if (child_insp.value)
+                    {
+                        next.push_back({
+                            child_addr,
+                            location_kind::terminal_value,
+                            child_insp.value
+                        });
+                    }
+                }
+            }
         }
 
         locations_ = std::move(next);
+
+        flush_pending_axis_();
+
+        if (locations_.empty())
+        {
+            issues_.push_back({
+                query_issue_kind::invalid_index,
+                "column(" + std::to_string(index) + ")",
+                0
+            });
+        }
+
+        return *this;
+    }
+
+    query_handle& query_handle::column(std::string_view name)
+    {
+        issues_.clear();
+
+        // Set pending axis
+        pending_axis_.column = name;
+
+        // Resolve if row is also pending
+        if (pending_axis_.row)
+        {
+            locations_ = details::resolve_axis_selections(*doc_, locations_, pending_axis_);
+            pending_axis_.reset();
+        }
+        // Or if we're already in a terminal value context (from a prior column call)
+        else if (!locations_.empty() && locations_.front().kind == location_kind::terminal_value)
+        {
+            // Already resolved - do nothing
+            pending_axis_.reset();
+        }
 
         if (locations_.empty())
         {
             issues_.push_back({
                 query_issue_kind::not_found,
-                std::string("row(\"") + std::string(name) + "\")",
+                std::string("column(\"") + std::string(name) + "\")",
                 0
             });
         }
-        else if (locations_.size() > 1)
+
+        return *this;
+    }
+
+    query_handle& query_handle::index(size_t n)
+    {
+        std::vector<value_location> next;
+        issues_.clear();
+
+        for (const auto& loc : locations_)
+        {
+            if (loc.kind != location_kind::terminal_value || !loc.value_ptr)
+                continue;
+
+            if (!is_array(loc.value_ptr->type))
+                continue;
+
+            reflect::inspect_context ctx{ doc_ };
+            auto insp = reflect::inspect(ctx, loc.addr);
+
+            for (const auto& child : insp.structural_children(ctx))
+            {
+                if (child.kind == reflect::structural_child::kind::index &&
+                    child.ordinal == n)
+                {
+                    auto child_addr = insp.extend_address(child);
+                    auto child_insp = reflect::inspect(ctx, child_addr);
+
+                    if (child_insp.value)
+                    {
+                        next.push_back({
+                            child_addr,
+                            location_kind::terminal_value,
+                            child_insp.value
+                        });
+                    }
+                }
+            }
+        }
+
+        locations_ = std::move(next);
+
+        flush_pending_axis_();
+
+        if (locations_.empty())
         {
             issues_.push_back({
-                query_issue_kind::ambiguous,
-                std::string("row(\"") + std::string(name) + "\")",
+                query_issue_kind::invalid_index,
+                "index(" + std::to_string(n) + ")",
                 0
             });
         }
@@ -1613,7 +1830,7 @@ namespace arf
         if (locations_.empty())
         {
             issues_.push_back({
-                query_issue_kind::not_found,
+                query_issue_kind::empty_result,
                 "where()",
                 0
             });
@@ -1688,7 +1905,7 @@ namespace arf
         if (locations_.empty())
         {
             issues_.push_back({
-                query_issue_kind::not_found,
+                query_issue_kind::empty_result,
                 "project()",
                 0
             });
@@ -1697,6 +1914,16 @@ namespace arf
         return *this;
     }
 
+    void query_handle::flush_pending_axis_()
+    {
+        if (!pending_axis_.row && !pending_axis_.column)
+            return;
+
+        locations_ =
+            details::resolve_axis_selections(*doc_, locations_, pending_axis_);
+
+        pending_axis_.reset();
+    }
 
     template<value_type vt>
     typed_value const *
@@ -1708,7 +1935,7 @@ namespace arf
         {
             *err = query_issue_kind::not_found;
             issues_.push_back({
-                query_issue_kind::not_found,
+                query_issue_kind::empty_result,
                 "<extraction>",
                 0
             });                
@@ -1751,7 +1978,7 @@ namespace arf
                     *err = query_issue_kind::conversion_failed;
             }
             else 
-                *err = query_issue_kind::no_literal;
+                *err = query_issue_kind::missing_literal;
         }
         else
             *err = query_issue_kind::not_a_value;
@@ -1767,7 +1994,7 @@ namespace arf
                 out = *sl;
                 return true;
             }
-            else *err = query_issue_kind::no_literal;
+            else *err = query_issue_kind::missing_literal;
         }
         else
             *err = query_issue_kind::not_a_value;
@@ -1779,6 +2006,9 @@ namespace arf
     query_result<T>
     query_handle::scalar_extract(bool convert) const noexcept
     {
+        // Flush any pending axis selections before extraction
+        const_cast<query_handle*>(this)->flush_pending_axis_();
+
         query_issue_kind err;
 
         if (auto v = common_extraction_checks<Vt>(&err); v != nullptr)
@@ -1806,6 +2036,9 @@ namespace arf
 
     query_result<bool> query_handle::as_bool() const noexcept
     {
+        // Flush any pending axis selections before extraction
+        const_cast<query_handle*>(this)->flush_pending_axis_();
+
         query_issue_kind err;
         if (auto v = common_extraction_checks<value_type::boolean>(&err); v != nullptr)
             return std::get<bool>(v->val);

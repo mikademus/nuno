@@ -499,6 +499,7 @@ namespace arf::tests
     {
         auto ctx = script_country_table();
         auto q = query(ctx.document, "world").table(0).row("Sweden").column("capital");
+        EXPECT(!q.empty(), "Query should resolve");
         EXPECT(q.locations().size() == 1, "Should have one match");
         auto res = q.as_string();
         EXPECT(res.has_value(), "The result should be string type");
@@ -511,6 +512,7 @@ namespace arf::tests
     {
         auto ctx = script_country_table();
         auto q = query(ctx.document, "world").table(0).column("capital").row("Sweden");
+        EXPECT(!q.empty(), "Query should resolve");
         EXPECT(q.locations().size() == 1, "Should have one match");
         auto res = q.as_string();
         EXPECT(res.has_value(), "The result should be string type");
@@ -523,6 +525,7 @@ namespace arf::tests
     {
         auto ctx = script_country_table();
         auto q = query(ctx.document, "world").row("Sweden").column("capital");
+        EXPECT(!q.empty(), "Query should resolve");
         EXPECT(q.locations().size() == 1, "Should have one match");
         auto res = q.as_string();
         EXPECT(res.has_value(), "The result should be string type");
@@ -535,6 +538,7 @@ namespace arf::tests
     {
         auto ctx = script_country_table();
         auto q = query(ctx.document, "world").column("capital").row("Sweden");
+        EXPECT(!q.empty(), "Query should resolve");
         EXPECT(q.locations().size() == 1, "Should have one match");
         auto res = q.as_string();
         EXPECT(res.has_value(), "The result should be string type");
