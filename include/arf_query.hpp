@@ -82,6 +82,7 @@ namespace arf
     enum class query_issue_kind
     {
         none,
+        syntax_error,       // illegal syntax used in dotpath
         not_found,          // path does not resolve (structural navigation failed)
         invalid_index,      // OOB index / the index doesn't exist 
         empty_result,       // filtering/enumeration produced empty set
@@ -92,30 +93,29 @@ namespace arf
         not_a_value,        // the queried address is not a value terminal
     };
 
-    std::string_view to_string(query_issue_kind kind)
+    enum class diagnostic_kind
     {
-        switch (kind)
-        {
-            using enum query_issue_kind;
-            case none: return "none";
-            case empty_result: return "empty result";
-            case not_found: return "not_found";
-            case invalid_index: return "invalid_index";
-            case ambiguous: return "ambiguous";
-            case type_mismatch: return "type_mismatch";
-            case conversion_failed: return "conversion_failed";
-            case missing_literal: return "no_literal";
-            case not_a_value: return "not_a_value";
-            default: return "unknown";
-        }
-    }
+        spelling_error,     // emitted when encountering possible mistakes in dotpath selectors
+        row_not_found,
+        column_not_found,
+        index_out_of_bounds,
+        empty_scope,
+        ambiguous_selection,
+    };
 
     struct query_issue
     {
         query_issue_kind kind { query_issue_kind::none };
         std::string     context;
-        std::size_t     step_index { 0 };        
+        size_t          step_index { 0 };        
     };
+
+    struct diagnostic
+    {
+        diagnostic_kind kind;
+        std::string     symbol;       // "orcs", "hp", etc
+        size_t          step_index;   // dotpath segment index
+    };    
 
 // =====================================================================
 // Query location model
@@ -136,16 +136,55 @@ namespace arf
         const typed_value*         value_ptr { nullptr };
     };
 
-    std::string_view to_string( location_kind loc )
+// =====================================================================
+// to_string
+// =====================================================================
+
+    inline std::string_view to_string(query_issue_kind kind)
+    {
+        switch (kind)
+        {
+            using enum query_issue_kind;
+            case none: return "none";
+            case syntax_error: return "syntax error";
+            case empty_result: return "empty result";
+            case not_found: return "not found";
+            case invalid_index: return "invalid index";
+            case ambiguous: return "ambiguous";
+            case type_mismatch: return "type mismatch";
+            case conversion_failed: return "conversion failed";
+            case missing_literal: return "missing literal";
+            case not_a_value: return "not a value";
+        }
+        return "unknown";
+    }
+
+    inline std::string_view to_string(diagnostic_kind kind)
+    {
+        switch (kind)
+        {
+            using enum diagnostic_kind;
+            case row_not_found: return "row not found";
+            case column_not_found: return "column not found";
+            case index_out_of_bounds: return "index out of bounds";
+            case empty_scope: return "empty scope";
+            case ambiguous_selection: return "ambiguous selection";
+            case spelling_error: return "spelling error?";
+        }
+        return "unknown";
+    }
+
+    inline std::string_view to_string( location_kind loc )
     {
         switch (loc)
         {
-            case location_kind::category_scope: return "category_scope";
-            case location_kind::table_scope: return "table_scope";
-            case location_kind::row_scope: return "row_scope";
-            case location_kind::terminal_value: return "terminal_value";
-            default: return "unknown";
+            using enum location_kind;
+            case category_scope: return "category scope";
+            case table_scope: return "table scope";
+            case row_scope: return "row scope";
+            case terminal_value: return "terminal value";
         }
+        return "unknown";
     }
     
 //======================================================================
@@ -326,6 +365,7 @@ namespace arf
 
         const std::vector<value_location>& locations() const noexcept { return locations_; }
         const std::vector<query_issue>& issues() const noexcept { return issues_; }
+        const std::vector<diagnostic>& diagnostics() const noexcept { return diagnostics_; }
 
         // --------------------------------------------------------------
         // Scalar extraction
@@ -343,6 +383,7 @@ namespace arf
         const document*                   doc_ { nullptr };
         std::vector<value_location>       locations_;
         mutable std::vector<query_issue>  issues_;
+        mutable std::vector<diagnostic>   diagnostics_;
         axis_selection                    pending_axis_;
 
         void flush_pending_axis_();
