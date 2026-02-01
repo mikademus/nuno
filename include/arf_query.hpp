@@ -95,11 +95,12 @@ namespace arf
 
     enum class diagnostic_kind
     {
-        spelling_error,     // emitted when encountering possible mistakes in dotpath selectors
-        row_not_found,
-        column_not_found,
-        index_out_of_bounds,
-        empty_scope,
+        spelling_error,     // emitted when encountering possible mistakes in dotpath selectors (#, [], --, ||)
+        row_not_found,      // named row not found in table(s)
+        column_not_found,   // named column not found in table(s)
+        invalid_index,      // non-numeric or otherwise malformed index following array, table, row or column selector
+        index_out_of_bounds,// negative or too large ordinal index following array, table, row or column selector
+        empty_scope,        // narrowing or enumeration requested on empty set
         ambiguous_selection,
     };
 
@@ -166,6 +167,7 @@ namespace arf
             using enum diagnostic_kind;
             case row_not_found: return "row not found";
             case column_not_found: return "column not found";
+            case diagnostic_kind::invalid_index: return "invalid index";
             case index_out_of_bounds: return "index out of bounds";
             case empty_scope: return "empty scope";
             case ambiguous_selection: return "ambiguous selection";
@@ -271,6 +273,37 @@ namespace arf
 // They reference the document but do not own it - the document must
 // outlive all query handles.
 //
+//
+// Selection:
+// ------------------------------------------------------------
+// - use the select() method to process dotpath segments, f.i. "top.sub.my_key".
+// - use the child() method to select a filter that can't be expressed in the
+//   dotpath select() syntax (f.i. items containing dots).
+//
+//
+// Row filtering (row narrowing by predicated filtering):
+// ------------------------------------------------------------
+// where(predicate)
+//
+// where() scope expansion rules
+//  If the current working set contains:
+//    - row_scope → filter rows
+//    - table_scope → equivalent to rows().where(...)
+//    - category_scope → expand to all tables under the category, then rows(), then apply where
+//  If no rows exist after expansion, the result is empty (not an error).
+//
+//
+// Projection from tables (shape transformation, not filtering)
+// ------------------------------------------------------------
+// project(n1, n2, n3 ...)
+//
+// project() declares which columns should be extracted from
+// resolved row sets. It does NOT affect query resolution,
+// ambiguity, or cardinality.
+//
+// Intended usage:
+//   query(...).table(0).rows().where(...).project("hp", "mp");
+//
 //-----------------------------------------------------------------------
 
     class query_handle
@@ -288,21 +321,26 @@ namespace arf
             bool complete() const noexcept { return row.has_value() && column.has_value(); }
         };
 
+        // --------------------------------------------------------------
+        // 1. Construction
+        // --------------------------------------------------------------
         explicit query_handle(const document& doc) noexcept : doc_(&doc) {}
 
         // --------------------------------------------------------------
-        // Generic path-parsing selector
+        // 2. Path-based selection
         // --------------------------------------------------------------
-
         query_handle& select(std::string_view path);
+        query_handle& child(std::string_view name);
 
         // --------------------------------------------------------------
-        // Table enumerators and selectors
+        // 3. Scope selectors (narrowing)
         // --------------------------------------------------------------
-
         query_handle& tables();
         query_handle& table(size_t ordinal);
 
+        // --------------------------------------------------------------
+        // 4. Table axis selectors
+        // --------------------------------------------------------------
         query_handle& rows();
         query_handle& row(size_t ordinal);
         query_handle& row(std::string_view name);
@@ -312,37 +350,15 @@ namespace arf
         query_handle& column(std::string_view name);
 
         // --------------------------------------------------------------
-        // Array element selector
+        // 5. Array element selector
         // --------------------------------------------------------------
-
         query_handle& index(size_t ordinal);
 
-        // ------------------------------------------------------------
-        // where() 
-        // set narrowing by predicated row filtering
-        // ------------------------------------------------------------
-        //
-        // where() scope expansion rules
-        //  If the current working set contains:
-        //    - row_scope → filter rows
-        //    - table_scope → equivalent to rows().where(...)
-        //    - category_scope → expand to all tables under the category, then rows(), then apply where
-        //  If no rows exist after expansion, the result is empty (not an error).
+        // --------------------------------------------------------------
+        // 6. Filtering & projection
+        // --------------------------------------------------------------
         query_handle& where(predicate pred);
 
-        // ------------------------------------------------------------
-        // projection (shape transformation, not filtering)
-        // ------------------------------------------------------------
-        //
-        // project() declares which columns should be extracted from
-        // resolved row sets. It does NOT affect query resolution,
-        // ambiguity, or cardinality.
-        //
-        // Intended usage:
-        //   query(...).table(0).rows().where(...).project("hp", "mp")
-        //
-        // Until implemented, this is a no-op placeholder.
-        //
         template <std::convertible_to<std::string_view>... Names>
         query_handle& project(Names&&... names)
         {
@@ -353,25 +369,21 @@ namespace arf
         };        
 
         // --------------------------------------------------------------
-        // Status of the query (of the result)
+        // 7. Query status
         // --------------------------------------------------------------
-
         bool empty() const noexcept { return locations_.empty(); }
         bool ambiguous() const noexcept { return locations_.size() > 1; }
 
         // --------------------------------------------------------------
-        // Information about working set (about the result)
+        // 8. Introspection
         // --------------------------------------------------------------
-
         const std::vector<value_location>& locations() const noexcept { return locations_; }
         const std::vector<query_issue>& issues() const noexcept { return issues_; }
         const std::vector<diagnostic>& diagnostics() const noexcept { return diagnostics_; }
 
         // --------------------------------------------------------------
-        // Scalar extraction
-        // (Extraction methods return query_result<T>)
+        // 9. Extraction
         // --------------------------------------------------------------
-
         query_result<int64_t>     as_integer(bool convert = false) const noexcept;
         query_result<double>      as_real(bool convert = false) const noexcept;
         query_result<bool>        as_bool() const noexcept; // conversion disallowed
@@ -401,7 +413,10 @@ namespace arf
         query_result<T>
         scalar_extract(bool convert) const noexcept;
 
-        query_handle& project_impl(std::span<const std::string_view> column_names);        
+        query_handle& project_impl(std::span<const std::string_view> column_names);
+        
+        void report_issue(query_issue_kind kind, std::string_view context, size_t line = 0) const noexcept;
+        void report_if_empty(query_issue_kind kind, std::string_view context, size_t line = 0) const noexcept;
     };
 
 //======================================================================
@@ -740,9 +755,28 @@ namespace arf
 
             // ============================================================
             // Handle table ordinal syntax: #0, #1, #2, etc.
+            // Bare # (no ordinal) selects ALL tables in scope.
             // ============================================================
-            if (token.starts_with('#') && token.size() > 1)
+            if (token.starts_with('#'))
             {
+                // Bare "#" → all tables
+                if (token.size() == 1)
+                {
+                    for (const auto& child : insp.structural_children(ctx))
+                    {
+                        if (child.kind == reflect::structural_child::kind::table)
+                        {
+                            out.push_back({
+                                insp.extend_address(child),
+                                location_kind::table_scope,
+                                nullptr
+                            });
+                        }
+                    }
+                    return out;
+                }
+
+                // "#n" → specific table by ordinal
                 auto ordinal_str = token.substr(1);
                 size_t target_ordinal = 0;
                 
@@ -1152,8 +1186,34 @@ namespace arf
             const document& doc,
             const working_set& current,
             std::string_view token,
-            query_handle::axis_selection& axis)
+            query_handle::axis_selection& axis,
+            std::vector<diagnostic>& diagnostics_,
+            size_t step_index)
         {
+            if (is_array_index(token))
+            {
+                auto inner = token.substr(1, token.size() - 2);
+                size_t dummy;
+                auto [ptr, ec] = std::from_chars(inner.data(), inner.data() + inner.size(), dummy);
+                if (ec != std::errc{})
+                {
+                    diagnostics_.push_back({
+                        diagnostic_kind::invalid_index,
+                        std::string(token),
+                        step_index
+                    });
+                }
+            }
+            // Malformed row/column selectors
+            else if (token.size() == 2 && (token == "--" || token == "||"))
+            {
+                diagnostics_.push_back({
+                    diagnostic_kind::spelling_error,
+                    std::string(token),
+                    step_index
+                });
+            }
+
             // Axis tokens: do not enumerate yet
             if (is_row_selector(token))
             {
@@ -1181,10 +1241,13 @@ namespace arf
         inline working_set
         resolve_dot_path(
             const document& doc,
-            std::span<const std::string_view> segments)
+            std::span<const std::string_view> segments,
+            query_handle::axis_selection& axis,
+            std::vector<query_issue>& issues_,
+            std::vector<diagnostic>& diagnostics_)
         {
             working_set current;
-            query_handle::axis_selection axis;
+            //query_handle::axis_selection axis;
 
             // Seed: root category scope
             current.push_back({
@@ -1193,8 +1256,25 @@ namespace arf
                 nullptr
             });
 
+            size_t i = 0;
             for (auto seg : segments)
             {
+                if (seg.empty())
+                {
+                    issues_.push_back({
+                        query_issue_kind::syntax_error,
+                        std::string("empty dotpath segment"),
+                        i
+                    });    
+                    diagnostics_.push_back({
+                        diagnostic_kind::empty_scope,
+                        std::string("empty dotpath segment"),
+                        i
+                    });                    
+                    assert(false && "decide what to do: abort, continue or continue empty");
+                    continue;
+                }
+
                 // Axis selectors do NOT resolve immediately
                 if (details::is_row_selector(seg))
                 {
@@ -1220,15 +1300,18 @@ namespace arf
                 }
 
                 // Normal structural step
-                current = resolve_step(doc, current, seg, axis);
+                current = resolve_step(doc, current, seg, axis, diagnostics_, i);
                 if (current.empty())
                     return current;
+
+                ++i;
             }
 
             // Final axis resolution at end of path
             if (axis.row || axis.column)
             {
                 current = resolve_axis_selections(doc, current, axis);
+                axis.reset();
             }
 
             return current;
@@ -1258,6 +1341,16 @@ namespace arf
 // IMPLEMENTATIONS
 // =====================================================================
 
+    void query_handle::report_issue(query_issue_kind kind, std::string_view context, size_t line) const noexcept
+    {
+        issues_.push_back({ kind, std::string(context), line });
+    }
+    void query_handle::report_if_empty(query_issue_kind kind, std::string_view context, size_t line) const noexcept
+    {
+        if (locations_.empty())
+            report_issue(kind, context, line);
+    }
+
     query_handle& query_handle::select(std::string_view path)
     {
         auto segments = details::split_dot_path(path);
@@ -1267,26 +1360,77 @@ namespace arf
 
         locations_ = details::resolve_dot_path(
             *doc_,
-            std::span<const std::string_view>(segments.data(), segments.size())
+            std::span<const std::string_view>(segments.data(), segments.size()),
+            pending_axis_,
+            issues_,
+            diagnostics_
         );
 
-        if (locations_.empty())
-        {
-            issues_.push_back({
-                query_issue_kind::not_found,
-                std::string(path),
-                segments.empty() ? 0 : segments.size() - 1
-            });
-        }
+        report_if_empty(query_issue_kind::not_found,
+                        std::string(path),
+                        segments.empty() ? 0 : segments.size() - 1);
         
-        else if (locations_.size() > 1)
+        if (locations_.size() > 1)
+            report_issue(query_issue_kind::ambiguous,
+                         std::string(path),
+                         segments.size() - 1);
+
+        return *this;
+    }
+
+    query_handle& query_handle::child(std::string_view name)
+    {
+        std::vector<value_location> next;
+        issues_.clear();
+
+        for (const auto& loc : locations_)
         {
-            issues_.push_back({
-                query_issue_kind::ambiguous,
-                std::string(path),
-                segments.size() - 1
-            });
+            reflect::inspect_context ctx{ doc_ };
+            auto insp = reflect::inspect(ctx, loc.addr);
+
+            for (const auto& child : insp.structural_children(ctx))
+            {
+                if (child.name != name)
+                    continue;
+
+                auto child_addr = insp.extend_address(child);
+                auto child_insp = reflect::inspect(ctx, child_addr);
+
+                location_kind kind = location_kind::category_scope;
+                const typed_value* value_ptr = nullptr;
+
+                using st = reflect::structural_child;
+                switch (child.kind)
+                {
+                    case st::kind::key:
+                        kind = location_kind::terminal_value;
+                        if (auto key_view = std::get_if<document::key_view>(&child_insp.item))
+                            value_ptr = &key_view->value();
+                        else if (auto val_ptr = std::get_if<const typed_value*>(&child_insp.item))
+                            value_ptr = *val_ptr;
+                        break;
+
+                    case st::kind::table:
+                        kind = location_kind::table_scope;
+                        break;
+
+                    case st::kind::sub_category:
+                    case st::kind::top_category:
+                        kind = location_kind::category_scope;
+                        break;
+
+                    default:
+                        continue;  // Skip non-nameable children (rows, columns, indices)
+                }
+
+                next.push_back({ child_addr, kind, value_ptr });
+            }
         }
+
+        locations_ = std::move(next);
+
+        report_if_empty(query_issue_kind::not_found, 
+                        "child(\"" + std::string(name) + "\") - not found");
 
         return *this;
     }
@@ -1321,14 +1465,8 @@ namespace arf
 
         locations_ = std::move(next);
 
-        if (locations_.empty())
-        {
-            issues_.push_back({
-                query_issue_kind::empty_result,
-                "tables()",
-                0
-            });
-        }
+        report_if_empty(query_issue_kind::empty_result,
+                        "tables() - no tables in current scope");
 
         return *this;
     }
@@ -1346,11 +1484,11 @@ namespace arf
         if (ordinal >= locations_.size())
         {
             locations_.clear();
-            issues_.push_back({
-                query_issue_kind::invalid_index,
-                "table(" + std::to_string(ordinal) + ")",
-                0
-            });
+
+            report_issue(query_issue_kind::invalid_index,
+                         "table(" + std::to_string(ordinal) + ") - only " + 
+                         std::to_string(locations_.size()) + " tables available");
+
             return *this;
         }
 
@@ -1393,14 +1531,8 @@ namespace arf
 
         flush_pending_axis_();
 
-        if (locations_.empty())
-        {
-            issues_.push_back({
-                query_issue_kind::empty_result,
-                "rows()",
-                0
-            });
-        }
+        report_if_empty(query_issue_kind::empty_result,
+                        "rows() - current scope has no rows");
 
         return *this;
     }
@@ -1417,11 +1549,11 @@ namespace arf
         if (ordinal >= locations_.size())
         {
             locations_.clear();
-            issues_.push_back({
-                query_issue_kind::invalid_index,
-                "row(" + std::to_string(ordinal) + ")",
-                0
-            });
+
+            report_issue(query_issue_kind::invalid_index,
+                         "row(" + std::to_string(ordinal) + ") - index out of range, only " + 
+                         std::to_string(locations_.size()) + " rows available");
+
             return *this;
         }
 
@@ -1465,14 +1597,8 @@ namespace arf
             
             locations_ = std::move(filtered);
             
-            if (locations_.empty())
-            {
-                issues_.push_back({
-                    query_issue_kind::not_found,
-                    std::string("row(\"") + std::string(name) + "\")",
-                    0
-                });
-            }
+            report_if_empty(query_issue_kind::empty_result,
+                            "row(\"" + std::string(name) + "\") - no matching rows in current set");
             
             return *this;
         }
@@ -1490,18 +1616,22 @@ namespace arf
 
         if (should_resolve)
         {
+            auto before_size = locations_.size();
             locations_ = details::resolve_axis_selections(*doc_, locations_, pending_axis_);
             pending_axis_.reset();
+            
+            if (locations_.empty() && before_size > 0)
+            {
+                diagnostics_.push_back({
+                    diagnostic_kind::row_not_found,
+                    std::string(name),
+                    0
+                });
+            }
         }
 
-        if (locations_.empty())
-        {
-            issues_.push_back({
-                query_issue_kind::empty_result,
-                std::string("row(\"") + std::string(name) + "\")",
-                0
-            });
-        }
+        report_if_empty(query_issue_kind::empty_result,
+                        "row(\"" + std::string(name) + "\") - row not found in table");
 
         return *this;
     }
@@ -1557,14 +1687,8 @@ namespace arf
 
         flush_pending_axis_();
 
-        if (locations_.empty())
-        {
-            issues_.push_back({
-                query_issue_kind::empty_result,
-                "columns()",
-                0
-            });
-        }
+        report_if_empty(query_issue_kind::empty_result,
+                        "columns() - no columns in current scope");
 
         return *this;
     }
@@ -1576,8 +1700,17 @@ namespace arf
 
         // Ensure column context exists (commutative)
         columns();
+        bool reported = false;
 
-        for (const auto& loc : locations_)
+        if (index >= locations_.size())
+        {
+            report_issue(query_issue_kind::invalid_index,
+                         "column(" + std::to_string(index) + ") - index out of range, only " + 
+                         std::to_string(locations_.size()) + " columns available");
+            reported = true;
+        }    
+
+        else for (const auto& loc : locations_)
         {
             if (loc.kind != location_kind::terminal_value || !loc.value_ptr)
                 continue;
@@ -1609,14 +1742,9 @@ namespace arf
 
         flush_pending_axis_();
 
-        if (locations_.empty())
-        {
-            issues_.push_back({
-                query_issue_kind::invalid_index,
-                "column(" + std::to_string(index) + ")",
-                0
-            });
-        }
+        if (locations_.empty() && !reported)
+            report_issue(query_issue_kind::invalid_index,
+                         "column(" + std::to_string(index) + ") - invalid column index");            
 
         return *this;
     }
@@ -1631,9 +1759,21 @@ namespace arf
         // Resolve if row is also pending
         if (pending_axis_.row)
         {
+            auto before_size = locations_.size();
             locations_ = details::resolve_axis_selections(*doc_, locations_, pending_axis_);
             pending_axis_.reset();
+            
+            // Diagnostic: named column didn't match anything
+            if (locations_.empty() && before_size > 0)
+            {
+                diagnostics_.push_back({
+                    diagnostic_kind::column_not_found,
+                    std::string(name),
+                    0
+                });
+            }
         }
+
         // Or if we're already in a terminal value context (from a prior column call)
         else if (!locations_.empty() && locations_.front().kind == location_kind::terminal_value)
         {
@@ -1641,14 +1781,8 @@ namespace arf
             pending_axis_.reset();
         }
 
-        if (locations_.empty())
-        {
-            issues_.push_back({
-                query_issue_kind::not_found,
-                std::string("column(\"") + std::string(name) + "\")",
-                0
-            });
-        }
+        report_if_empty(query_issue_kind::not_found,
+                        std::string("column(\"") + std::string(name) + "\") - column not found");
 
         return *this;
     }
@@ -1687,20 +1821,23 @@ namespace arf
                     }
                 }
             }
+
+            if (next.empty() && !locations_.empty())
+            {
+                diagnostics_.push_back({
+                    diagnostic_kind::index_out_of_bounds,
+                    "index(" + std::to_string(n) + ") - array index out of bounds or not an array",
+                    0
+                });
+            }            
         }
 
         locations_ = std::move(next);
 
         flush_pending_axis_();
 
-        if (locations_.empty())
-        {
-            issues_.push_back({
-                query_issue_kind::invalid_index,
-                "index(" + std::to_string(n) + ")",
-                0
-            });
-        }
+        report_if_empty(query_issue_kind::invalid_index,
+                        "index(" + std::to_string(n) + ") - array index out of bounds or not an array");
 
         return *this;
     }
@@ -1842,11 +1979,7 @@ namespace arf
             auto idx = details::resolve_column_index(row_view->table(), pred.column);
             if (!idx)
             {
-                issues_.push_back({
-                    query_issue_kind::invalid_index,
-                    "where()",
-                    0
-                });
+                report_issue(query_issue_kind::invalid_index, "where()");
                 continue;
             }
 
@@ -1870,9 +2003,12 @@ namespace arf
 
         if (locations_.empty())
         {
-            issues_.push_back({
-                query_issue_kind::empty_result,
-                "where()",
+            report_issue(query_issue_kind::empty_result,
+                         "where() - predicate eliminated all rows");
+            
+            diagnostics_.push_back({
+                diagnostic_kind::empty_scope,
+                "predicate eliminated all rows",
                 0
             });
         }
@@ -1910,11 +2046,8 @@ namespace arf
 
                 if (!idx)
                 {
-                    issues_.push_back({
-                        query_issue_kind::invalid_index,
-                        std::string("project(\"") + std::string(name) + "\")",
-                        0
-                    });
+                    report_issue(query_issue_kind::invalid_index, 
+                                 std::string("project(\"") + std::string(name) + "\")");
                     continue;
                 }
 
@@ -1943,14 +2076,8 @@ namespace arf
 
         locations_ = std::move(next);
 
-        if (locations_.empty())
-        {
-            issues_.push_back({
-                query_issue_kind::empty_result,
-                "project()",
-                0
-            });
-        }
+        report_if_empty(query_issue_kind::empty_result,
+                        "project() - no columns matched projection");
 
         return *this;
     }
@@ -1974,23 +2101,15 @@ namespace arf
 
         if (locations_.empty())
         {
-            *err = query_issue_kind::not_found;
-            issues_.push_back({
-                query_issue_kind::empty_result,
-                "<extraction>",
-                0
-            });                
+            *err = query_issue_kind::empty_result;
+            report_issue(*err, "<extraction>");
             return nullptr;
         }
 
         if (locations_.size() > 1)
         {
             *err = query_issue_kind::ambiguous;
-            issues_.push_back({
-                query_issue_kind::ambiguous,
-                "<extraction>",
-                0
-            });                
+            report_issue(*err, "<extraction>");             
             return nullptr;
         }
 
@@ -1999,6 +2118,7 @@ namespace arf
         if (!v || v->type != vt)
         {
             *err = query_issue_kind::type_mismatch;
+            report_issue(*err, "<extraction>");             
             return nullptr;
         }
 
