@@ -18,9 +18,8 @@ namespace arf
     
     enum class parse_event_kind
     {
-        empty_line,
-        comment,
-        invalid,
+        comment,        // "// ..."
+        paragraph,      // any non-grammar text (including empty lines)
 
         key_value,
         table_header,
@@ -107,6 +106,14 @@ namespace arf
             std::vector<category_id> category_stack;
             table_id active_table {invalid_id<table_tag>()};
 
+            // Blobbing state for comments and paragraphs
+            std::vector<std::string> pending_comment_lines;
+            std::vector<std::string> pending_paragraph_lines;
+            
+            void flush_pending_comment();
+            void flush_pending_paragraph();
+            void flush_all_pending();
+
             void parse(std::string_view input);
             void add_error(const std::string& message);
 
@@ -121,10 +128,10 @@ namespace arf
             void open_category(std::string_view name, parse_event& ev);
             void close_category(std::string_view, parse_event& ev);
 
-            void key_value(parse_event& ev);
+            bool key_value(parse_event& ev);
 
             void start_table(std::string_view header, parse_event& ev);
-            void table_row(std::string_view text, parse_event& ev);
+            bool table_row(std::string_view text, parse_event& ev);
         };
 
 //---------------------------------------------------------------------------        
@@ -156,6 +163,9 @@ namespace arf
                     
                 start = end + 1;
             }
+            
+            // Flush any pending blobs at end of document
+            flush_all_pending();            
         }
 
 //---------------------------------------------------------------------------        
@@ -234,70 +244,152 @@ namespace arf
             
             return cells;
         }
-        
-//---------------------------------------------------------------------------        
 
-        void parser_impl::parse_line(std::string_view line, size_t line_no)
+//---------------------------------------------------------------------------
+
+        void parser_impl::flush_pending_comment()
         {
-            std::string_view trimmed = trim_sv(line);
+            if (pending_comment_lines.empty())
+                return;
 
             parse_event ev;
-            ev.loc.line = line_no;
-            ev.text     = line;
-
-            if (trimmed.empty())
+            ev.kind = parse_event_kind::comment;
+            ev.loc.line = 0;  // TODO: track first line number if needed
+            
+            // Join lines with newlines to create multi-line blob
+            std::string blob;
+            for (size_t i = 0; i < pending_comment_lines.size(); ++i)
             {
-                ev.kind = parse_event_kind::empty_line;
-                ctx.document.events.push_back(ev);
-                return;
+                blob += pending_comment_lines[i];
+                if (i + 1 < pending_comment_lines.size())
+                    blob += '\n';
             }
-
-            if (trimmed.starts_with("//"))
-            {
-                ev.kind = parse_event_kind::comment;
-                ctx.document.events.push_back(ev);
-                return;
-            }
-
-            if (trimmed.starts_with(":"))
-            {
-                open_category(trimmed.substr(1), ev);
-                return;
-            }
-
-            if (trimmed.starts_with("/") && trimmed.size() > 1)
-            {
-                close_category(trimmed.substr(1), ev);
-                return;
-            }
-
-            if (trimmed.ends_with(":"))
-            {
-                open_top_level_category(trimmed.substr(0, trimmed.size() - 1), ev);
-                return;
-            }
-
-            if (trimmed.starts_with("#"))
-            {
-                start_table(trimmed.substr(1), ev);
-                return;
-            }
-
-            if (trimmed.find('=') != std::string_view::npos)
-            {
-                key_value(ev);
-                return;
-            }
-
-            if (active_table != invalid_id<table_tag>())
-            {
-                table_row(trimmed, ev);
-                return;
-            }
-
-            ev.kind = parse_event_kind::invalid;
+            ev.text = std::move(blob);
+            
             ctx.document.events.push_back(ev);
+            pending_comment_lines.clear();
         }
+
+//---------------------------------------------------------------------------
+
+        void parser_impl::flush_pending_paragraph()
+        {
+            if (pending_paragraph_lines.empty())
+                return;
+
+            parse_event ev;
+            ev.kind = parse_event_kind::paragraph;
+            ev.loc.line = 0;  // TODO: track first line number if needed
+            
+            // Join lines with newlines to create multi-line blob
+            std::string blob;
+            for (size_t i = 0; i < pending_paragraph_lines.size(); ++i)
+            {
+                blob += pending_paragraph_lines[i];
+                if (i + 1 < pending_paragraph_lines.size())
+                    blob += '\n';
+            }
+            ev.text = std::move(blob);
+            
+            ctx.document.events.push_back(ev);
+            pending_paragraph_lines.clear();
+        }
+
+//---------------------------------------------------------------------------
+
+        void parser_impl::flush_all_pending()
+        {
+            flush_pending_comment();
+            flush_pending_paragraph();
+        }        
+
+//---------------------------------------------------------------------------        
+
+    void parser_impl::parse_line(std::string_view line, size_t line_no)
+    {
+        std::string_view trimmed = trim_sv(line);
+
+        // Empty lines become paragraphs
+        if (trimmed.empty())
+        {
+            flush_pending_comment();
+            pending_paragraph_lines.push_back(std::string(line));
+            return;
+        }
+
+        // Comments: accumulate into blob
+        if (trimmed.starts_with("//"))
+        {
+            flush_pending_paragraph();
+            pending_comment_lines.push_back(std::string(line));
+            return;
+        }
+
+        // All structural tokens flush pending blobs
+        parse_event ev;
+        ev.loc.line = line_no;
+        ev.text     = line;
+
+        // Category open (subcategory)
+        if (trimmed.starts_with(":"))
+        {
+            flush_all_pending();
+            open_category(trimmed.substr(1), ev);
+            return;
+        }
+
+        // Category close
+        if (trimmed.starts_with("/") && trimmed.size() > 1)
+        {
+            flush_all_pending();
+            close_category(trimmed.substr(1), ev);
+            return;
+        }
+
+        // Top-level category
+        if (trimmed.ends_with(":"))
+        {
+            flush_all_pending();
+            open_top_level_category(trimmed.substr(0, trimmed.size() - 1), ev);
+            return;
+        }
+
+        // Table header
+        if (trimmed.starts_with("#"))
+        {
+            flush_all_pending();
+            start_table(trimmed.substr(1), ev);
+            return;
+        }
+
+        // Key/value
+        if (trimmed.find('=') != std::string_view::npos)
+        {
+            flush_all_pending();
+            if (!key_value(ev))
+            {
+                // Malformed key - treat as paragraph
+                pending_paragraph_lines.push_back(std::string(line));
+            }
+            return;
+        }
+
+        // Table row (if inside a table)
+        if (active_table != invalid_id<table_tag>())
+        {
+            flush_all_pending();
+            if (!table_row(trimmed, ev))
+            {
+                // Not a valid row - treat as paragraph
+                pending_paragraph_lines.push_back(std::string(line));
+            }
+            return;
+        }
+
+        // Otherwise: paragraph (non-grammar text)
+        flush_pending_comment();
+        pending_paragraph_lines.push_back(std::string(line));
+    }
 
 //---------------------------------------------------------------------------        
 
@@ -344,8 +436,8 @@ namespace arf
             // Implicit close: close top of stack
             if (category_stack.size() <= 1)
             {
-                ev.kind = parse_event_kind::invalid;
-                ctx.document.events.push_back(ev);
+                // Malformed close - parser discards it
+                // Materializer will handle validation
                 return;
             }
 
@@ -400,15 +492,12 @@ namespace arf
 
 //---------------------------------------------------------------------------        
 
-        void parser_impl::table_row(std::string_view text, parse_event& ev)
+        bool parser_impl::table_row(std::string_view text, parse_event& ev)
         {
             auto cells = split_table_cells(text);
+
             if (cells.empty())
-            {
-                ev.kind = parse_event_kind::invalid;
-                ctx.document.events.push_back(ev);
-                return;
-            }
+                return false; // not a valid row
 
             struct table_row row;
             row.id = next_row_id++;
@@ -439,20 +528,19 @@ namespace arf
             ev.target = row.id;
 
             ctx.document.events.push_back(ev);
+            return true;
         }
 
 //---------------------------------------------------------------------------        
 
-        void parser_impl::key_value(parse_event& ev)
+        bool parser_impl::key_value(parse_event& ev)
         {
             active_table = invalid_id<table_tag>();
 
             auto pos = ev.text.find('=');
             if (pos == std::string::npos)
             {
-                ev.kind = parse_event_kind::invalid;
-                ctx.document.events.push_back(ev);
-                return;
+                return false;  // Malformed
             }
 
             std::string lhs = std::string(trim_sv(ev.text.substr(0, pos)));
@@ -485,6 +573,7 @@ namespace arf
             ev.target = key.owner;
 
             ctx.document.events.push_back(ev);
+            return true;
         }
 
     } // anon ns

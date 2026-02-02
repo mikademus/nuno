@@ -152,10 +152,9 @@ namespace arf
             
             table_id                     id;
             category_id                  owner;
-            // std::vector<struct column>  columns;
             std::vector<column_id>       columns;
-            std::vector<table_row_id>    rows;   // authored order
-            std::vector<source_item_ref> ordered_items;
+            std::vector<table_row_id>    rows;          // semantic collection (all rows)
+            std::vector<source_item_ref> ordered_items; // authored order (rows + comments + paragraphs + subcategories)
             semantic_state               semantic      {semantic_state::valid};
             contamination_state          contamination {contamination_state::clean};
         };
