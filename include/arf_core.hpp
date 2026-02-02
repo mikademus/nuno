@@ -52,12 +52,16 @@ namespace arf
     struct table_row_tag;
     struct table_column_tag;
     struct key_tag;
+    struct comment_tag;
+    struct paragraph_tag;
 
     using category_id   = id<category_tag>;
     using table_id      = id<table_tag>;
     using table_row_id  = id<table_row_tag>;
     using column_id     = id<table_column_tag>;
     using key_id        = id<key_tag>;
+    using comment_id    = id<comment_tag>;
+    using paragraph_id  = id<paragraph_tag>;
 
 //========================================================================
 // Values

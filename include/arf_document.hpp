@@ -95,20 +95,53 @@ namespace arf
         // Internal storage (fully normalised)
         //------------------------------------------------------------------------
         
+        enum class category_close_form
+        {
+            shorthand,   // "/"
+            named        // "/category"
+        };
+
+        struct category_close_marker
+        {
+            category_id         which;
+            category_close_form form;
+        };
+
+        using source_id = std::variant<
+            key_id,
+            category_id,            // category open
+            category_close_marker,  // category close
+            table_id,
+            table_row_id,
+            comment_id,
+            paragraph_id
+        >;
+
+        struct source_item_ref
+        {
+            source_id id;
+        };
+
+        struct root_node
+        {
+            std::vector<source_item_ref> ordered_items;
+        };        
+
         struct category_node
         {
             typedef category_id id_type;
             id_type _id() const noexcept { return id; }
             std::string_view _name() const noexcept { return name; }
             
-            category_id              id;
-            std::string              name;
-            category_id              parent;
-            std::vector<category_id> children;
-            std::vector<table_id>    tables;
-            std::vector<key_id>      keys; 
-            semantic_state           semantic      {semantic_state::valid};
-            contamination_state      contamination {contamination_state::clean};
+            category_id                  id;
+            std::string                  name;
+            category_id                  parent;
+            std::vector<category_id>     children;
+            std::vector<table_id>        tables;
+            std::vector<key_id>          keys;
+            std::vector<source_item_ref> ordered_items;
+            semantic_state               semantic      {semantic_state::valid};
+            contamination_state          contamination {contamination_state::clean};
         };
 
         struct table_node
@@ -117,13 +150,14 @@ namespace arf
             id_type _id() const noexcept { return id; }
             std::string_view _name() const noexcept = delete;
             
-            table_id                    id;
-            category_id                 owner;
+            table_id                     id;
+            category_id                  owner;
             // std::vector<struct column>  columns;
-            std::vector<column_id>      columns;
-            std::vector<table_row_id>   rows;   // authored order
-            semantic_state              semantic      {semantic_state::valid};
-            contamination_state         contamination {contamination_state::clean};
+            std::vector<column_id>       columns;
+            std::vector<table_row_id>    rows;   // authored order
+            std::vector<source_item_ref> ordered_items;
+            semantic_state               semantic      {semantic_state::valid};
+            contamination_state          contamination {contamination_state::clean};
         };
 
         struct column_node
@@ -175,11 +209,26 @@ namespace arf
             contamination_state  contamination {contamination_state::clean};
         };
 
-        std::vector<category_node> categories_;
-        std::vector<table_node>    tables_;
-        std::vector<column_node>   columns_;
-        std::vector<row_node>      rows_;
-        std::vector<key_node>      keys_;
+        struct comment_node
+        {
+            comment_id  id;
+            std::string text;   // verbatim, includes "//" and leading whitespace
+        };
+
+        struct paragraph_node
+        {
+            paragraph_id id;
+            std::string  text;  // verbatim, may be multi-line, preserves leading whitespace and line breaks
+        };        
+
+        root_node                    root_;
+        std::vector<category_node>   categories_;
+        std::vector<table_node>      tables_;
+        std::vector<column_node>     columns_;
+        std::vector<row_node>        rows_;
+        std::vector<key_node>        keys_;
+        std::vector<comment_node>    comments_;
+        std::vector<paragraph_node>  paragraphs_;
 
         bool row_is_valid(document::row_node const& r);
         bool table_is_valid(document::table_node const& t);
