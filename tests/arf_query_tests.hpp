@@ -771,6 +771,250 @@ namespace arf::tests
         return true;
     }
 
+// ---------------------------------------------------------------------------
+// Array extraction tests
+// Insert these functions before run_query_tests(), and register them
+// inside run_query_tests() under a new SUBCAT("Array extraction") block.
+// ---------------------------------------------------------------------------
+
+    // -----------------------------------------------------------------
+    // Whole-array extraction — happy paths
+    // -----------------------------------------------------------------
+
+    bool array_whole_extraction_integers()
+    {
+        auto ctx = load(R"(
+            top:
+                arr:int[] = 10|20|30
+        )");
+
+        auto res = query(ctx.document, "top.arr").as_integers();
+        EXPECT(res.has_value(), "as_integers() should succeed on int[]");
+
+        auto& v = *res;
+        EXPECT(v.size() == 3, "should extract three elements");
+        EXPECT(v[0] == 10 && v[1] == 20 && v[2] == 30, "element values incorrect");
+
+        return true;
+    }
+
+    bool array_whole_extraction_reals()
+    {
+        auto ctx = load(R"(
+            top:
+                arr:float[] = 1.1|2.2|3.3
+        )");
+
+        auto res = query(ctx.document, "top.arr").as_reals();
+        EXPECT(res.has_value(), "as_reals() should succeed on float[]");
+
+        auto& v = *res;
+        EXPECT(v.size() == 3, "should extract three elements");
+        EXPECT(v[0] == 1.1 && v[1] == 2.2 && v[2] == 3.3, "element values incorrect");
+
+        return true;
+    }
+
+    bool array_whole_extraction_strings()
+    {
+        auto ctx = load(R"(
+            top:
+                arr:str[] = alpha|beta|gamma
+        )");
+
+        auto res = query(ctx.document, "top.arr").as_strings();
+        EXPECT(res.has_value(), "as_strings() should succeed on str[]");
+
+        auto& v = *res;
+        EXPECT(v.size() == 3, "should extract three elements");
+        EXPECT(v[0] == "alpha" && v[1] == "beta" && v[2] == "gamma", "element values incorrect");
+
+        return true;
+    }
+
+    // -----------------------------------------------------------------
+    // Whole-array extraction — error paths
+    // -----------------------------------------------------------------
+
+    bool array_whole_extraction_type_mismatch()
+    {
+        auto ctx = load(R"(
+            top:
+                arr:str[] = a|b|c
+        )");
+
+        // str[] is not int[] — should return type_mismatch
+        auto res = query(ctx.document, "top.arr").as_integers();
+        EXPECT(!res.has_value(), "as_integers() on str[] must fail");
+        EXPECT(res.error() == query_issue_kind::type_mismatch, "error should be type_mismatch");
+
+        return true;
+    }
+
+    bool array_whole_extraction_empty_path()
+    {
+        auto ctx = load(R"(
+            top:
+                x = 1
+        )");
+
+        auto res = query(ctx.document, "top.nonexistent").as_integers();
+        EXPECT(!res.has_value(), "extraction on nonexistent path must fail");
+        EXPECT(res.error() == query_issue_kind::empty_result, "error should be empty_result");
+
+        return true;
+    }
+
+    bool array_whole_extraction_ambiguous()
+    {
+        auto ctx = load(R"(
+            top:
+                arr:int[] = 1|2
+                arr:int[] = 3|4
+        )");
+
+        auto res = query(ctx.document, "top.arr").as_integers();
+        EXPECT(!res.has_value(), "ambiguous path must not extract");
+        EXPECT(res.error() == query_issue_kind::ambiguous, "error should be ambiguous");
+
+        return true;
+    }
+
+    bool array_whole_extraction_skips_invalid()
+    {
+        // int[] with one non-integer element: contaminated array.
+        // as_integers() should extract only the valid integer elements.
+        auto ctx = load(R"(
+            top:
+                arr:int[] = 1|nope|3
+        )");
+
+        // Verify the materialiser produced a contaminated key (precondition)
+        auto key = ctx.document.key(key_id{0});
+        EXPECT(key.has_value(), "key must exist");
+        EXPECT(key->is_contaminated(), "precondition: array must be contaminated");
+
+        auto res = query(ctx.document, "top.arr").as_integers();
+        EXPECT(res.has_value(), "as_integers() should still succeed on contaminated int[]");
+
+        auto& v = *res;
+        EXPECT(v.size() == 2, "only valid integer elements should be extracted");
+        EXPECT(v[0] == 1 && v[1] == 3, "extracted values incorrect");
+
+        return true;
+    }
+
+    // -----------------------------------------------------------------
+    // Indexed element extraction — free functions
+    // -----------------------------------------------------------------
+
+    bool array_indexed_get_integer()
+    {
+        auto ctx = load(R"(
+            top:
+                arr:int[] = 10|20|30
+        )");
+
+        auto v = get_integer(ctx.document, "top.arr", 1);
+        EXPECT(v.has_value(), "get_integer with index should succeed");
+        EXPECT(*v == 20, "indexed extraction returned wrong value");
+
+        return true;
+    }
+
+    bool array_indexed_get_real()
+    {
+        auto ctx = load(R"(
+            top:
+                arr:float[] = 1.5|2.5|3.5
+        )");
+
+        auto v = get_real(ctx.document, "top.arr", 0);
+        EXPECT(v.has_value(), "get_real with index should succeed");
+        EXPECT(*v == 1.5, "indexed extraction returned wrong value");
+
+        return true;
+    }
+
+    bool array_indexed_get_string()
+    {
+        auto ctx = load(R"(
+            top:
+                arr:str[] = foo|bar|baz
+        )");
+
+        auto v = get_string(ctx.document, "top.arr", 2);
+        EXPECT(v.has_value(), "get_string with index should succeed");
+        EXPECT(*v == "baz", "indexed extraction returned wrong value");
+
+        return true;
+    }
+
+    bool array_indexed_get_out_of_bounds()
+    {
+        auto ctx = load(R"(
+            top:
+                arr:int[] = 1|2|3
+        )");
+
+        auto v = get_integer(ctx.document, "top.arr", 99);
+        EXPECT(!v.has_value(), "out-of-bounds index must not extract");
+
+        return true;
+    }
+
+    // -----------------------------------------------------------------
+    // Whole-array extraction — free functions
+    // -----------------------------------------------------------------
+
+    bool array_free_function_integers()
+    {
+        auto ctx = load(R"(
+            top:
+                arr:int[] = 7|8|9
+        )");
+
+        auto res = get_integers(ctx.document, "top.arr");
+        EXPECT(res.has_value(), "get_integers should succeed");
+
+        auto& v = *res;
+        EXPECT(v.size() == 3, "should extract three elements");
+        EXPECT(v[0] == 7 && v[1] == 8 && v[2] == 9, "element values incorrect");
+
+        return true;
+    }
+
+    bool array_free_function_reals()
+    {
+        auto ctx = load(R"(
+            top:
+                arr:float[] = 0.1|0.2|0.3
+        )");
+
+        auto res = get_reals(ctx.document, "top.arr");
+        EXPECT(res.has_value(), "get_reals should succeed");
+        EXPECT(res->size() == 3, "should extract three elements");
+
+        return true;
+    }
+
+    bool array_free_function_strings()
+    {
+        auto ctx = load(R"(
+            top:
+                arr:str[] = x|y|z
+        )");
+
+        auto res = get_strings(ctx.document, "top.arr");
+        EXPECT(res.has_value(), "get_strings should succeed");
+
+        auto& v = *res;
+        EXPECT(v.size() == 3, "should extract three elements");
+        EXPECT(v[0] == "x" && v[1] == "y" && v[2] == "z", "element values incorrect");
+
+        return true;
+    }
+
 
     void run_query_tests()
     {
@@ -822,6 +1066,21 @@ namespace arf::tests
         RUN_TEST(query_hash_n_out_of_range);
         RUN_TEST(query_hash_selects_all_tables);
         RUN_TEST(query_hash_then_row_selection);
+        SUBCAT("Array extraction");
+        RUN_TEST(array_whole_extraction_integers);
+        RUN_TEST(array_whole_extraction_reals);
+        RUN_TEST(array_whole_extraction_strings);
+        RUN_TEST(array_whole_extraction_type_mismatch);
+        RUN_TEST(array_whole_extraction_empty_path);
+        RUN_TEST(array_whole_extraction_ambiguous);
+        RUN_TEST(array_whole_extraction_skips_invalid);
+        RUN_TEST(array_indexed_get_integer);
+        RUN_TEST(array_indexed_get_real);
+        RUN_TEST(array_indexed_get_string);
+        RUN_TEST(array_indexed_get_out_of_bounds);
+        RUN_TEST(array_free_function_integers);
+        RUN_TEST(array_free_function_reals);
+        RUN_TEST(array_free_function_strings);
     }
 }
 

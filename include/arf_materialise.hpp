@@ -903,18 +903,6 @@ namespace
             row.cells.push_back(std::move(tv));
         }
 
-        // Column invalidity contaminates the row
-        for (auto const& col_id : tbl.columns)
-        {
-            auto it = doc_.find_node_by_id(doc_.columns_, col_id);
-            assert (it != doc_.columns_.end());
-            if (it->col.semantic == semantic_state::invalid)
-            {
-                row.contamination = contamination_state::contaminated;
-                break;
-            }
-        }
-
         // Cell or array invalidity contaminates the row
         for (auto const& c : row.cells)
         {

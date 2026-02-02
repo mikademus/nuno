@@ -274,8 +274,8 @@ namespace arf
         template<strictly_integral T>
         struct vt_conv<T>
         {
-            enum vtype { vtype = static_cast<int>(value_type::decimal) };
-            typedef double stype;
+            enum vtype { vtype = static_cast<int>(value_type::integer) };
+            typedef int64_t stype;
         };
 
         template<std::floating_point T>
