@@ -25,12 +25,7 @@ static bool foo()
 
     std::ostringstream out;
     auto s = serializer(out);
-    auto & r = s.root(ctx.document);
-
-    std::cout << r.ordered_items.size() << std::endl;
-
     s.write(ctx.document);
-    // out.flush();
 
     std::cout << out.str() << std::endl;
 

@@ -127,11 +127,6 @@ namespace arf
             source_id id;
         };
 
-        struct root_node
-        {
-            std::vector<source_item_ref> ordered_items;
-        };        
-
         struct category_node
         {
             typedef category_id id_type;
@@ -225,7 +220,6 @@ namespace arf
             std::string  text;  // verbatim, may be multi-line, preserves leading whitespace and line breaks
         };        
 
-        root_node                    root_;
         std::vector<category_node>   categories_;
         std::vector<table_node>      tables_;
         std::vector<column_node>     columns_;

@@ -648,8 +648,6 @@ namespace
             }
         }
 
-        doc_.root_.ordered_items = doc_.categories_.front().ordered_items;
-
         return std::move(out_);
     }
 

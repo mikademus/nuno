@@ -49,13 +49,10 @@ namespace arf
         {
         }
 
-        document::root_node const & root(const document& doc) { return doc.root_; }
-
         void write(const document& doc)
         {
-std::cout << "write: #items in root = " << doc.root_.ordered_items.size() << std::endl;
             // Walk root's ordered_items
-            for (const auto& item : doc.root_.ordered_items)
+            for (const auto& item : doc.categories_.front().ordered_items)
             {
                 write_source_item(doc, item);
             }
