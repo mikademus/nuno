@@ -112,7 +112,7 @@ namespace arf
 
 
         // Helpers
-        template<typename T> void insert_source_item(id<T> id);
+        void insert_source_item(document::source_id id);
         document::table_node * find_table(table_id tid);
         document::category_node * find_category(category_id cid);
 
@@ -648,6 +648,8 @@ namespace
             }
         }
 
+        doc_.root_.ordered_items = doc_.categories_.front().ordered_items;
+
         return std::move(out_);
     }
 
@@ -699,6 +701,7 @@ namespace
 
         cst_to_doc_category_[cid.val] = doc_id;
         stack_.push_back(doc_id);
+        insert_source_item(doc_id);
     }
 
     inline void materialiser::handle_category_close(const parse_event& ev)
@@ -750,6 +753,10 @@ namespace
 
             stack_.pop_back();
             active_table_.reset();
+
+            document::category_close_marker marker{*it, document::category_close_form::named};
+            insert_source_item(marker);
+
             return;
         }
 
@@ -776,6 +783,9 @@ namespace
 
             stack_.pop_back();
             active_table_.reset();
+
+            document::category_close_marker marker{closing, document::category_close_form::shorthand};
+            insert_source_item(marker);            
         }
     }
 
@@ -843,6 +853,7 @@ namespace
         auto it = doc_.find_node_by_id(doc_.categories_, cat_id);
         assert (it != doc_.categories_.end());
         it->tables.push_back(tid);
+        insert_source_item(tid);
 
         active_table_ = tid;
     }
@@ -936,6 +947,7 @@ namespace
 
         doc_.rows_.push_back(std::move(row));
         tbl.rows.push_back(rid);
+        insert_source_item(rid);
 
         if (row.contamination == contamination_state::contaminated)
             tbl.contamination = contamination_state::contaminated;
@@ -1032,7 +1044,8 @@ namespace
         auto & cat = *it;
 
         cat.keys.emplace_back(id);
-
+        insert_source_item(id);
+        
         if (key.semantic == semantic_state::invalid ||
             key.contamination == contamination_state::contaminated)
         {
@@ -1055,8 +1068,7 @@ namespace
         return nullptr;
     }
 
-    template<typename T>
-    void materialiser::insert_source_item(id<T> id)
+    void materialiser::insert_source_item(document::source_id id)  // Takes the variant directly
     {
         if (active_table_)
         {
