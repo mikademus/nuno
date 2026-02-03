@@ -83,6 +83,9 @@ namespace arf
         std::optional<key_view> key(key_id id) const noexcept;
         std::vector<key_view>   keys() const noexcept;
 
+        size_t comment_count() const noexcept { return comments_.size(); }
+        size_t paragraph_count() const noexcept { return paragraphs_.size(); }
+
         category_id create_category(category_id id, std::string_view name, category_id parent);
 
         contamination_state contamination {contamination_state::clean};

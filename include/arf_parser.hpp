@@ -29,6 +29,22 @@ namespace arf
         category_close
     };
 
+    inline std::string_view to_string(parse_event_kind kind)
+    {
+        switch (kind)
+        {
+            using enum parse_event_kind;
+            case comment: return "comment";
+            case paragraph: return "paragraph";
+            case key_value: return "key_value";
+            case table_header: return "table_header";
+            case table_row: return "table_row";
+            case category_open: return "category_open";
+            case category_close: return "category_close";
+        }
+        return "unknown";
+    }
+
     using unresolved_name = std::string_view;
 
     using parse_event_target = 
@@ -142,7 +158,7 @@ namespace arf
             create_root_category();
             
             size_t start = 0;
-            while (start <= input.size()) // Note: <= to handle trailing newline
+            while (start < input.size())
             {
                 size_t end = input.find('\n', start);
                 
@@ -289,6 +305,7 @@ namespace arf
                 if (i + 1 < pending_paragraph_lines.size())
                     blob += '\n';
             }
+
             ev.text = std::move(blob);
             
             ctx.document.events.push_back(ev);
@@ -425,19 +442,21 @@ namespace arf
         {
             ev.kind = parse_event_kind::category_close;
 
+            if (category_stack.size() <= 1)
+            {
+                // malformed close: preserve authored intent as comment
+                // instead of discarding.Do NOT blob with any previous
+                // comment; keep separate.
+                flush_all_pending();
+                pending_comment_lines.push_back(std::string("// ") + std::string(ev.text));
+                return;
+            }            
+
             // Named close: preserve the name as written
             if (!name.empty())
             {
                 ev.target = unresolved_name{name};
                 ctx.document.events.push_back(ev);
-                return;
-            }
-
-            // Implicit close: close top of stack
-            if (category_stack.size() <= 1)
-            {
-                // Malformed close - parser discards it
-                // Materializer will handle validation
                 return;
             }
 

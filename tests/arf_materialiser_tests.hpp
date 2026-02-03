@@ -606,14 +606,13 @@ static bool category_ids_are_not_dense_indices()
 static bool scope_stack_is_never_empty()
 {
     constexpr std::string_view src =
-        "/a\n"
-        "/b\n";
+        "/a\n"      // should be converted to comment
+        "/b\n";     // should be converted to comment
 
     auto ctx = load(src);
-    EXPECT(ctx.has_errors(), "invalid closes expected");
-
-    EXPECT(ctx.document.root().has_value(),
-           "root must survive any invalid closes");
+    EXPECT(!ctx.has_errors(), "invalid closes should have been handled by parser");
+    EXPECT(ctx.document.comment_count() == 2, "There should be two comments");
+    EXPECT(ctx.document.root().has_value(), "root must survive any invalid closes");
 
     return true;
 }
