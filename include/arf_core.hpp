@@ -232,11 +232,16 @@ namespace arf
             }
         }
 
-        inline std::string_view trim_sv(std::string_view s) 
+        inline std::string_view trim_sv(std::string_view s)
         {
-            size_t start = s.find_first_not_of(" \t\r\n");
-            if (start == std::string_view::npos) return {};
-            size_t end = s.find_last_not_of(" \t\r\n");
+            const size_t start = s.find_first_not_of(" \t\r\n");
+            if (start == std::string_view::npos)
+                return {};
+
+            const size_t end = s.find_last_not_of(" \t\r\n");
+            if (end == std::string_view::npos || end < start)
+                return {};
+
             return s.substr(start, end - start + 1);
         }
         

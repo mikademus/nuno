@@ -7,6 +7,7 @@
 #define ARF_PARSER_HPP
 
 #include "arf_core.hpp"
+#include <assert.h>
 #include <cstdlib>
 #include <sstream>
 
@@ -54,7 +55,8 @@ namespace arf
             unresolved_name,  
             category_id, 
             table_id, 
-            table_row_id
+            table_row_id,
+            key_id
         >;
 
 
@@ -113,10 +115,8 @@ namespace arf
         {
             parse_context ctx;
 
-            category_id  next_category_id {0};
-            table_id     next_table_id {0};
-            table_row_id next_row_id {0};
-            column_id    next_column_id {0};
+            // Columns are stored per-table so a global counter is needed
+            column_id next_column_id {0};
 
             // Active context
             std::vector<category_id> category_stack;
@@ -199,8 +199,10 @@ namespace arf
 
         void parser_impl::create_root_category()
         {
+            assert (ctx.document.categories.empty() && "Root must be the first category");
+
             category root;
-            root.id     = next_category_id++;
+            root.id     = 0;
             root.name   = "__root__";
             root.parent = invalid_id<category_tag>();
 
@@ -423,7 +425,7 @@ namespace arf
         void parser_impl::open_category(std::string_view name, parse_event& ev)
         {
             category cat;
-            cat.id     = next_category_id++;
+            cat.id     = ctx.document.categories.size();
             cat.name   = to_lower(std::string(trim_sv(name)));
             cat.parent = category_stack.back();
 
@@ -475,7 +477,7 @@ namespace arf
         void parser_impl::start_table(std::string_view header, parse_event& ev)
         {
             table tbl;
-            tbl.id              = next_table_id++;
+            tbl.id              = ctx.document.tables.size();
             tbl.owning_category = category_stack.back();
 
             auto cols = split_table_cells(header);
@@ -519,7 +521,7 @@ namespace arf
                 return false; // not a valid row
 
             struct table_row row;
-            row.id = next_row_id++;
+            row.id = ctx.document.rows.size();
             row.owning_category = category_stack.back();
 
             const table& tbl = ctx.document.tables.at(static_cast<size_t>(active_table));
@@ -586,10 +588,11 @@ namespace arf
             key.literal       = rhs;
             key.loc           = ev.loc;
 
+            key_id id{ ctx.document.keys.size() };
             ctx.document.keys.push_back(std::move(key));
 
             ev.kind   = parse_event_kind::key_value;
-            ev.target = key.owner;
+            ev.target = id;
 
             ctx.document.events.push_back(ev);
             return true;

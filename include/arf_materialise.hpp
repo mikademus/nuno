@@ -102,7 +102,6 @@ namespace arf
         materialiser_options     opts_;
         std::vector<category_id> stack_;
         std::optional<table_id>  active_table_;
-        size_t                   key_index_     {0};
 
         // Materialisation can break the direct 
         // correspondence between CST events and
@@ -951,13 +950,13 @@ namespace
             tbl.contamination = contamination_state::contaminated;
     }
 
-    inline void materialiser::handle_key(parse_event const&)
+    inline void materialiser::handle_key(parse_event const& ev)
     {
-        const key_id cst_idx = key_id{key_index_++};
-        const cst_key& cst = cst_.keys.at(cst_idx);
+        auto kid = std::get<key_id>(ev.target);
+        const cst_key& cst = cst_.keys.at(kid.val);
 
         document::key_node k;
-        k.id    = cst_idx;
+        k.id    = kid;
         k.name  = cst.name;
         k.owner = stack_.back(); 
 
@@ -967,7 +966,6 @@ namespace
 
         value_type target = value_type::unresolved;
 
-        // declared type handling (unchanged)
         if (cst.declared_type)
         {
             auto t = parse_declared_type(*cst.declared_type, out_);

@@ -771,12 +771,6 @@ namespace arf::tests
         return true;
     }
 
-// ---------------------------------------------------------------------------
-// Array extraction tests
-// Insert these functions before run_query_tests(), and register them
-// inside run_query_tests() under a new SUBCAT("Array extraction") block.
-// ---------------------------------------------------------------------------
-
     // -----------------------------------------------------------------
     // Whole-array extraction — happy paths
     // -----------------------------------------------------------------
