@@ -177,7 +177,7 @@ static bool semantic_invalid_key_flagged()
     auto ctx = load(src);
     EXPECT(ctx.has_errors(), "no error emitted");
 
-    auto doc = ctx.document;
+    auto & doc = ctx.document;
     EXPECT(doc.key_count() == 1, "incorrect arity");
 
     auto k = doc.key(key_id{0});
@@ -197,7 +197,7 @@ static bool semantic_invalid_column_flagged()
     auto ctx = load(src);
     EXPECT(ctx.has_errors(), "no error emitted");
 
-    auto doc = ctx.document;
+    auto & doc = ctx.document;
     auto tbl = doc.table(table_id{0});
     EXPECT(tbl.has_value(), "there is no table");
 
@@ -235,7 +235,7 @@ static bool contamination_column_contaminates_rows_only()
         "  hello\n";
 
     auto ctx = load(src);
-    auto doc = ctx.document;
+    auto & doc = ctx.document;
 
     auto tbl = doc.table(table_id{0});
     EXPECT(tbl.has_value(), "there is no table");
@@ -258,7 +258,7 @@ static bool view_exposes_row_invalidity()
         "  nope\n";
 
     auto ctx = load(src);
-    auto doc = ctx.document;
+    auto & doc = ctx.document;
 
     auto row0 = doc.row(table_row_id{0});
     auto row1 = doc.row(table_row_id{1});
@@ -278,7 +278,7 @@ static bool array_key_all_elements_valid()
         "arr:int[] = 1|2|3\n";
 
     auto ctx = load(src);
-    auto doc = ctx.document;
+    auto & doc = ctx.document;
 
     auto key = doc.key(key_id{0});
     EXPECT(key.has_value(), "missing key");
@@ -294,7 +294,7 @@ static bool array_invalid_element_contaminates_key()
         "arr:int[] = 1|nope|3\n";
 
     auto ctx = load(src);
-    auto doc = ctx.document;
+    auto & doc = ctx.document;
 
     auto key = doc.key(key_id{0});
     EXPECT(key.has_value(), "missing key");
@@ -310,7 +310,7 @@ static bool array_untyped_collapses_to_string()
         "arr = 1|2|3\n";
 
     auto ctx = load(src);
-    auto doc = ctx.document;
+    auto & doc = ctx.document;
 
     auto key = doc.key(key_id{0});
     EXPECT(key.has_value(), "missing key");
@@ -327,7 +327,7 @@ static bool array_table_cells_valid()
         "  2   4|5\n";
 
     auto ctx = load(src);
-    auto doc = ctx.document;
+    auto & doc = ctx.document;
 
     auto row0 = doc.row(table_row_id{0});
     auto row1 = doc.row(table_row_id{1});
@@ -346,7 +346,7 @@ static bool array_invalid_element_contaminates_row()
         "  2   3|4\n";
 
     auto ctx = load(src);
-    auto doc = ctx.document;
+    auto & doc = ctx.document;
 
     auto row0 = doc.row(table_row_id{0});
     auto row1 = doc.row(table_row_id{1});
@@ -366,7 +366,7 @@ static bool array_empty_elements_are_missing_not_contaminating()
         "arr:str[] = a||b|\n";
 
     auto ctx = load(src);
-    auto doc = ctx.document;
+    auto & doc = ctx.document;
 
     auto key = doc.key(key_id{0});
     EXPECT(key.has_value(), "missing key");
@@ -588,7 +588,7 @@ static bool category_ids_are_not_dense_indices()
     auto ctx = load(src);
     EXPECT(ctx.has_errors(), "expected invalid subcategory");
 
-    auto doc = ctx.document;
+    auto & doc = ctx.document;
     EXPECT(doc.category_count() == 2, "root + a");
 
     auto cats = doc.categories();
@@ -624,7 +624,7 @@ static bool no_key_owned_by_nonexistent_category()
         "x = 1\n";
 
     auto ctx = load(src);
-    auto& doc = ctx.document;
+    auto & doc = ctx.document;
 
     auto cats = doc.categories();
     auto keys = doc.keys();

@@ -17,6 +17,7 @@
 #include "arf_parser.hpp"
 #include "arf_document.hpp"
 #include <array>
+#include <memory>
 #include <ranges>
 #include <unordered_map>
 
@@ -82,6 +83,7 @@ namespace arf
 
     // Facade
     material_context materialise( const parse_context& ctx, materialiser_options opts = {});    
+    material_context materialise(parse_context&& ctx, materialiser_options opts = {});
 
 //========================================================================
 // materialiser
@@ -89,8 +91,7 @@ namespace arf
 
     struct materialiser
     {
-        materialiser(const parse_context& ctx,
-                     materialiser_options opts);
+        materialiser(const parse_context& ctx, materialiser_options opts);  // Non-owning
 
         material_context run();
 
@@ -651,6 +652,16 @@ namespace
             }
         }
 
+        if (opts_.own_parser_data)
+        {
+            // Transfer ownership via move
+            out_.document.source_context_ = 
+                // This works, which is a bit surprising.
+                std::make_unique<parse_context>(std::move(ctx_));
+                // I had expected the const-ness of ctx_ to require:
+                //std::make_unique<parse_context>(std::move(const_cast<parse_context&>(ctx_)));
+        }
+                
         return std::move(out_);
     }
 
@@ -1139,9 +1150,20 @@ namespace
         return true;
     }    
 
-    inline material_context materialise(const parse_context& ctx, materialiser_options opts)
+
+    // Non-owning (keeps parse_context alive externally)
+    material_context materialise(const parse_context& ctx, materialiser_options opts)
     {
+        opts.own_parser_data = false;  // Force non-owning
         materialiser m(ctx, opts);
+        return m.run();
+    }
+
+    // Owning (transfers parse_context into document)
+    material_context materialise(parse_context&& ctx, materialiser_options opts)
+    {
+        opts.own_parser_data = true;  // Force owning
+        materialiser m(std::move(ctx), opts);
         return m.run();
     }
 }

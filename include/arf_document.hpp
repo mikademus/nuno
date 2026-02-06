@@ -11,6 +11,7 @@
 #include <cassert>
 #include <iterator>
 #include <iostream>
+#include <memory>
 #include <ranges>
 #include <span>
 
@@ -24,9 +25,6 @@ namespace arf
     class document
     {
     public:
-
-        // Link back to source (optional, nullptr for generated documents)
-        const parse_context* source_context {nullptr};
 
         //------------------------------------------------------------------------
         // Public, read-only views
@@ -43,8 +41,16 @@ namespace arf
         //------------------------------------------------------------------------
 
         document() = default;
-        ~document() {if (source_context) delete source_context;}
-
+        ~document() = default;  // unique_ptr handles cleanup
+        
+        // Non-copyable (parse_context is large)
+        document(const document&) = delete;
+        document& operator=(const document&) = delete;
+        
+        // Movable
+        document(document&&) = default;
+        document& operator=(document&&) = default;
+        
         //------------------------------------------------------------------------
         // Category access
         //------------------------------------------------------------------------
@@ -250,6 +256,8 @@ namespace arf
             std::optional<size_t> source_event_index;   // Index into parse_context.events
             bool                  is_edited {false};    // Modified after materialization
         };        
+
+        std::unique_ptr<parse_context> source_context_;
 
         std::vector<category_node>   categories_;
         std::vector<table_node>      tables_;
