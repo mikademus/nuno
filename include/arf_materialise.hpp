@@ -22,6 +22,10 @@
 
 #include <iostream>
 
+#define TRACE_IMPL(x) std::cout << std::string(x, '-') << " " << __FUNCTION__ << " line " << __LINE__
+#define TRACE(ind) TRACE_IMPL(ind) << std::endl    
+#define TRACE_MSG(ind, msg) TRACE_IMPL(ind) << ": " << msg << std::endl
+
 namespace arf
 {
     //#define TRACE_CONTAM(where, x) \
@@ -30,6 +34,7 @@ namespace arf
                     
     struct materialiser_options
     {
+        bool own_parser_data {true}; // Document will assume ownership of the parser data. Without it the serialiser will not be able to output the original format.
         size_t max_category_depth {64};
     //--Debug options
         bool echo_lines  {false}; // prints each CST parser event to be handled
@@ -115,13 +120,13 @@ namespace arf
         document::table_node * find_table(table_id tid);
         document::category_node * find_category(category_id cid);
 
-        void handle_category_open(const parse_event& ev);
-        void handle_category_close(const parse_event& ev);
-        void handle_table_header(const parse_event& ev);
-        void handle_table_row(const parse_event& ev);        
-        void handle_key(parse_event const& ev);
-        void handle_comment(parse_event const& ev);
-        void handle_paragraph(parse_event const& ev);
+        void handle_category_open(const parse_event& ev, size_t parse_idx );
+        void handle_category_close(const parse_event& ev, size_t parse_idx);
+        void handle_table_header(const parse_event& ev, size_t parse_idx);
+        void handle_table_row(const parse_event& ev, size_t parse_idx);        
+        void handle_key(parse_event const& ev, size_t parse_idx);
+        void handle_comment(parse_event const& ev, size_t parse_idx);
+        void handle_paragraph(parse_event const& ev, size_t parse_idx);
 
         void log_err( semantic_error_kind what, std::string_view msg, source_location loc )
         {
@@ -216,7 +221,6 @@ namespace
     inline std::optional<typed_value> infer_scalar_value(std::string_view s)
     {
         typed_value tv;
-        tv.source_literal = std::string(s);
         tv.origin = value_locus::key_value;
 
         if (auto b = is_bool(s); b.has_value())
@@ -372,7 +376,6 @@ namespace
 
             typed_value elem;
             elem.origin = origin;
-            elem.source_literal = std::string(part);
 
             // Empty element: preserved, missing but not invalid
             if (part.empty())
@@ -485,7 +488,6 @@ namespace
     {
         typed_value tv;
         tv.origin = value_locus::table_cell;
-        tv.source_literal = std::string(literal);
 
         // Unresolved or string → accept verbatim
         if (column_type == value_type::unresolved ||
@@ -593,43 +595,45 @@ namespace
 
     inline material_context materialiser::run()
     {
-        for (const auto& ev : cst_.events)
+        for (size_t i = 0; i < cst_.events.size(); ++i)
         {
+            const auto& ev = cst_.events[i];
+
             switch (ev.kind)
             {
                 case parse_event_kind::category_open:
                     if (opts_.echo_lines) std::cout << "event: category_open = " << ev.text << std::endl;
-                    handle_category_open(ev);
+                    handle_category_open(ev, i);
                     break;
 
                 case parse_event_kind::category_close:
                     if (opts_.echo_lines) std::cout << "event: category_close = " << ev.text << std::endl;
-                    handle_category_close(ev);
+                    handle_category_close(ev, i);
                     break;
 
                 case parse_event_kind::table_header:
                     if (opts_.echo_lines) std::cout << "event: table_header = " << ev.text << std::endl;
-                    handle_table_header(ev);
+                    handle_table_header(ev, i);
                     break;
 
                 case parse_event_kind::table_row:
                     if (opts_.echo_lines) std::cout << "event: table_row = " << ev.text << std::endl;
-                    handle_table_row(ev);
+                    handle_table_row(ev, i);
                     break;
 
                 case parse_event_kind::key_value:
                     if (opts_.echo_lines) std::cout << "event: key_value = " << ev.text << std::endl;
-                    handle_key(ev);
+                    handle_key(ev, i);
                     break;
 
                 case parse_event_kind::comment:
                     if (opts_.echo_lines) std::cout << "event: comment\n";
-                    handle_comment(ev);
+                    handle_comment(ev, i);
                     break;
 
                 case parse_event_kind::paragraph:
                     if (opts_.echo_lines) std::cout << "event: paragraph\n";
-                    handle_paragraph(ev);
+                    handle_paragraph(ev, i);
                     break;
 
                 default:
@@ -650,7 +654,7 @@ namespace
         return std::move(out_);
     }
 
-    inline void materialiser::handle_category_open(const parse_event& ev)
+    inline void materialiser::handle_category_open(const parse_event& ev, size_t parse_idx)
     {
         auto cid = std::get<category_id>(ev.target);
 
@@ -694,6 +698,11 @@ namespace
 
         category_id doc_id = doc_.create_category(cid, cst_cat.name, parent);
         if (opts_.echo_lines) std::cout << "created category id: " << cid.val << ", name: " << cst_cat.name << std::endl;
+
+        auto it = std::ranges::find_if(doc_.categories_, [doc_id](document::category_node const &cat){return cat.id.val == doc_id.val;});
+        assert (it != doc_.categories_.end());
+        it->source_event_index_open = parse_idx;
+        
         doc_.categories_.back().semantic = semantic_state::valid;
 
         cst_to_doc_category_[cid.val] = doc_id;
@@ -701,7 +710,7 @@ namespace
         insert_source_item(doc_id);
     }
 
-    inline void materialiser::handle_category_close(const parse_event& ev)
+    inline void materialiser::handle_category_close(const parse_event& ev, size_t parse_idx)
     {
         // Named close: unresolved name
         if (std::holds_alternative<unresolved_name>(ev.target))
@@ -745,6 +754,10 @@ namespace
                 return;
             }
 
+            auto cat_it = std::ranges::find_if(doc_.categories_, [cid = *it](document::category_node const &cat){return cat.id.val == cid.val;});
+            assert (cat_it != doc_.categories_.end());
+            cat_it->source_event_index_close = parse_idx;
+
             while (stack_.back() != *it)
                 stack_.pop_back();
 
@@ -778,6 +791,10 @@ namespace
                 return;
             }
 
+            auto cat_it = std::ranges::find_if(doc_.categories_, [closing](document::category_node const &cat){return cat.id.val == closing.val;});
+            assert (cat_it != doc_.categories_.end());
+            cat_it->source_event_index_close = parse_idx;
+
             stack_.pop_back();
             active_table_.reset();
 
@@ -786,7 +803,7 @@ namespace
         }
     }
 
-    inline void materialiser::handle_table_header(const parse_event& ev)
+    inline void materialiser::handle_table_header(const parse_event& ev, size_t parse_idx)
     {
         auto tid = std::get<table_id>(ev.target);
         const auto& cst_tbl = cst_.tables[tid.val];
@@ -794,6 +811,7 @@ namespace
         document::table_node tbl;
         tbl.id      = tid;
         tbl.owner   = stack_.back();
+        tbl.source_event_index = parse_idx;
         tbl.rows.clear();
 
         for (const auto& cst_col : cst_tbl.columns)
@@ -802,6 +820,7 @@ namespace
             col_.col   = cst_col;
             col_.table = tid;
             col_.owner = tbl.owner;
+            col_.source_event_index = parse_idx;
 
             column & col = col_.col;
 
@@ -856,7 +875,7 @@ namespace
     }
 
 
-    inline void materialiser::handle_table_row(const parse_event& ev)
+    inline void materialiser::handle_table_row(const parse_event& ev, size_t parse_idx)
     {
         if (!active_table_)
             return; // syntactically valid, semantically inert
@@ -884,6 +903,7 @@ namespace
         row.owner = stack_.back();
         row.semantic = semantic_state::valid;
         row.contamination = contamination_state::clean;        
+        row.source_event_index = parse_idx;
         row.cells.reserve(tbl.columns.size());
 
         // Column invalidity contaminates the row
@@ -904,10 +924,10 @@ namespace
             assert (it != doc_.columns_.end());
             auto & col = it->col;
 
-            std::string_view literal =
+            std::string literal =
                 (i < cst_row.cells.size())
-                    ? std::string_view(cst_row.cells[i].source_literal.value())
-                    : std::string_view{};
+                    ? cst_row.cells[i].value_to_string()//std::string_view(cst_row.cells[i].source_literal.value())
+                    : "";
 
             typed_value tv;
             tv.origin = value_locus::table_cell;
@@ -950,7 +970,7 @@ namespace
             tbl.contamination = contamination_state::contaminated;
     }
 
-    inline void materialiser::handle_key(parse_event const& ev)
+    inline void materialiser::handle_key(parse_event const& ev, size_t parse_idx)
     {
         auto kid = std::get<key_id>(ev.target);
         const cst_key& cst = cst_.keys.at(kid.val);
@@ -959,6 +979,7 @@ namespace
         k.id    = kid;
         k.name  = cst.name;
         k.owner = stack_.back(); 
+        k.source_event_index = parse_idx;
 
         k.type_source = cst.declared_type
                             ? type_ascription::declared
@@ -1078,14 +1099,16 @@ namespace
         }
     }
 
-    inline void materialiser::handle_comment(const parse_event& ev)
+    inline void materialiser::handle_comment(const parse_event& ev, size_t parse_idx)
     {
         insert_source_item(doc_.create_comment(ev.text));
+        doc_.comments_.back().source_event_index = parse_idx;
     }
 
-    void materialiser::handle_paragraph(const parse_event& ev)
+    void materialiser::handle_paragraph(const parse_event& ev, size_t parse_idx)
     {
         insert_source_item(doc_.create_paragraph(ev.text));
+        doc_.paragraphs_.back().source_event_index = parse_idx;
     }
 
     inline bool materialiser::row_is_valid(document::row_node const& r)

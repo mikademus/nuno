@@ -101,7 +101,8 @@ namespace arf
         ambiguous,          // multiple matches when singular expected
         type_mismatch,      // value is of another type than requested
         conversion_failed,  // attempt to convert value between types failed
-        missing_literal,    // the source_literal member of the value is empty
+//        overflow,           // conversion overflowed
+//        missing_literal,    // there is not document sourcefor the value
         not_a_value,        // the queried address is not a value terminal
     };
 
@@ -166,7 +167,7 @@ namespace arf
             case ambiguous: return "ambiguous";
             case type_mismatch: return "type mismatch";
             case conversion_failed: return "conversion failed";
-            case missing_literal: return "missing literal";
+//            case missing_literal: return "missing literal";
             case not_a_value: return "not a value";
         }
         return "unknown";
@@ -2135,42 +2136,95 @@ namespace arf
         return v;
     }
 
-    template<typename T>
-    bool query_handle::extract_convert(T & out, query_issue_kind* err) const noexcept
-    {
-        if (auto const * vp = locations_.front().value_ptr; vp != nullptr)
-        {
-            if (auto const & sl = vp->source_literal; sl.has_value())
-            {
-                if (auto res = std::from_chars(sl->data(), sl->data() + sl->size(), out); 
-                    res.ec == std::errc{})
-                    return true;
-                else
-                    *err = query_issue_kind::conversion_failed;
-            }
-            else 
-                *err = query_issue_kind::missing_literal;
-        }
-        else
-            *err = query_issue_kind::not_a_value;
-        return false;
-    }
-    template<>
-    bool query_handle::extract_convert<std::string>(std::string & out, query_issue_kind* err) const noexcept
-    {
-        if (auto vp = locations_.front().value_ptr; vp != nullptr)
-        {
-            if (auto const & sl = vp->source_literal; sl.has_value())
-            {
-                out = *sl;
-                return true;
-            }
-            else *err = query_issue_kind::missing_literal;
-        }
-        else
-            *err = query_issue_kind::not_a_value;
+    template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
 
-        return false;
+    template<typename T>
+    bool convert_typed_value_to(const typed_value& tv, T& out, query_issue_kind* err) 
+    {
+        static_assert(std::is_arithmetic_v<T>, "This template only supports numeric types.");
+
+        return std::visit(overloaded
+        {
+            // Handle numeric-to-numeric (int/double/bool inside variant)
+            [&](auto val) -> bool 
+            {
+                if constexpr (std::is_arithmetic_v<decltype(val)>) {
+                    out = static_cast<T>(val);
+                    return true;
+                }
+                return false;
+            },
+            // Handle string-to-numeric
+            [&](const std::string& str) -> bool 
+            {
+                auto [ptr, ec] = std::from_chars(str.data(), str.data() + str.size(), out);
+                return ec == std::errc{};
+            }
+        }, tv.val) || ([&]{ if(err) *err = query_issue_kind::conversion_failed; return false; }());
+    }
+
+    template<>
+    bool convert_typed_value_to<bool>(const typed_value& tv, bool& out, query_issue_kind* err) 
+    {
+        return std::visit(overloaded
+        {
+            [&](bool b) { out = b; return true; },
+            [&](int64_t i) { out = (i != 0); return true; },
+            [&](const std::string& s) 
+            {
+                auto sv = trim_sv(s);
+                if (sv == "true" || sv == "1") { out = true; return true; }
+                if (sv == "false" || sv == "0") { out = false; return true; }
+                return false;
+            },
+            [&](auto) { return false; } // Fallback for decimals/others
+        }, tv.val) || ([&]{ if(err) *err = query_issue_kind::conversion_failed; return false; }());
+    }
+
+    template<>
+    bool convert_typed_value_to<std::string>(const typed_value& tv, std::string& out, query_issue_kind* err) 
+    {
+        return std::visit(overloaded
+        {
+            // Direct string to string
+            [&](const std::string& s) { out = s; return true; },
+            // Boolean to "true"/"false"
+            [&](bool b) { out = b ? "true" : "false"; return true; },
+            // Numbers to strings
+            [&](auto val) -> bool 
+            {
+                if constexpr (std::is_arithmetic_v<decltype(val)>) {
+                    out = std::to_string(val);
+                    return true;
+                }
+                return false;
+            }
+        }, tv.val) || ([&]{ if(err) *err = query_issue_kind::conversion_failed; return false; }());
+    }
+
+    template<typename T>
+    bool query_handle::extract_convert(T& out, query_issue_kind* err) const noexcept
+    {
+        assert(err != nullptr);
+
+        // Check if we have a valid pointer to the stored value
+        if (locations_.empty() || !locations_.front().value_ptr)
+        {
+            *err = query_issue_kind::not_a_value;
+            return false;
+        }
+
+        const auto* vp = locations_.front().value_ptr;
+
+        try // std::visit can throw std::bad_variant_access
+        {
+            return convert_typed_value_to<T>(*vp, out, err);
+        }
+        catch (...)
+        {
+            *err = query_issue_kind::conversion_failed;
+            return false;
+        }
     }
 
     template<value_type Vt, typename T>

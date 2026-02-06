@@ -533,11 +533,10 @@ namespace arf
                 tv.type           = value_type::unresolved;
                 tv.type_source    = tbl.columns[i].type_source;
                 tv.origin         = value_locus::table_cell;
-                tv.source_literal =
+                tv.val =
                     (i < cells.size())
                         ? std::string(cells[i])
                         : std::string{};
-                tv.val = tv.source_literal.has_value() ? *tv.source_literal : std::string{};
 
                 row.cells.push_back(tv);
             }

@@ -126,11 +126,26 @@ namespace arf
         value_type          type;
         type_ascription     type_source;
         value_locus         origin;
-        std::optional<std::string> source_literal;
         semantic_state      semantic      = semantic_state::valid;
         contamination_state contamination = contamination_state::clean;
+
+        std::string value_to_string() const noexcept;
     };
 
+    inline std::string typed_value::value_to_string() const noexcept
+    {
+        if (std::holds_alternative<std::string>(val))
+            return std::get<std::string>(val);
+        if (std::holds_alternative<int64_t>(val))
+            return std::to_string(std::get<int64_t>(val));
+        if (std::holds_alternative<double>(val))
+            return std::to_string(std::get<double>(val));
+        if (std::holds_alternative<bool>(val))
+            return std::get<bool>(val) ? "true" : "false";
+
+        return {};
+    }
+        
     inline bool is_valid(const typed_value &value) { return value.semantic == semantic_state::valid; }
     inline bool is_clean(const typed_value &value) { return value.contamination == contamination_state::clean; }
     inline bool is_numeric(value_type type) { return type == value_type::integer || type == value_type::decimal; }

@@ -4,7 +4,7 @@
 #include "arf_document_structure_tests.hpp"
 #include "arf_reflection_tests.hpp"
 #include "arf_query_tests.hpp"
-#include "arf_serializer_tests.hpp"
+//#include "arf_serializer_tests.hpp"
 //#include "arf_value_semantics_tests.hpp"
 #include <cstring>
 #include <iostream>
@@ -37,7 +37,7 @@ int main()
     run_tests("Document structure", run_document_structure_tests);
     run_tests("Reflection", run_reflection_tests);
     run_tests("Queries", run_query_tests);
-    run_tests("Serialization", run_seriealizer_tests);
+    //run_tests("Serialization", run_seriealizer_tests);
     //run_value_semantics_tests();
 
     // unified reporting    

@@ -475,7 +475,7 @@ namespace arf::tests
                                    "npc2", "elf", 
                                    "npc3", "gnome"};
         for (int i = 0; i < 6; ++i)
-            EXPECT(*q.locations()[i].value_ptr->source_literal == strs[i], "String mismatch");
+            EXPECT(q.locations()[i].value_ptr->value_to_string() == strs[i], "String mismatch");
 
         return true;
     }

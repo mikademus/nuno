@@ -6,7 +6,7 @@
 #ifndef ARF_DOCUMENT_HPP
 #define ARF_DOCUMENT_HPP
 
-#include "arf_core.hpp"
+#include "arf_parser.hpp"
 
 #include <cassert>
 #include <iterator>
@@ -24,6 +24,10 @@ namespace arf
     class document
     {
     public:
+
+        // Link back to source (optional, nullptr for generated documents)
+        const parse_context* source_context {nullptr};
+
         //------------------------------------------------------------------------
         // Public, read-only views
         //------------------------------------------------------------------------
@@ -39,6 +43,7 @@ namespace arf
         //------------------------------------------------------------------------
 
         document() = default;
+        ~document() {if (source_context) delete source_context;}
 
         //------------------------------------------------------------------------
         // Category access
@@ -142,6 +147,11 @@ namespace arf
             std::vector<source_item_ref> ordered_items;
             semantic_state               semantic      {semantic_state::valid};
             contamination_state          contamination {contamination_state::clean};
+
+            // Authorship metadata
+            std::optional<size_t>        source_event_index_open;   // Category open event
+            std::optional<size_t>        source_event_index_close;  // Category close event (if explicit)
+            bool                         is_edited {false};
         };
 
         struct table_node
@@ -157,6 +167,10 @@ namespace arf
             std::vector<source_item_ref> ordered_items; // authored order (rows + comments + paragraphs + subcategories)
             semantic_state               semantic      {semantic_state::valid};
             contamination_state          contamination {contamination_state::clean};
+    
+            // Authorship metadata
+            std::optional<size_t>        source_event_index;  // Points to table_header event (shared by all columns in table)
+            bool                         is_edited {false};
         };
 
         struct column_node
@@ -168,20 +182,21 @@ namespace arf
             struct column   col;
             table_id        table;
             category_id     owner;
-
+    
+            // Authorship metadata
+            std::optional<size_t> source_event_index;  // Points to table_header event (shared by all columns in table)
+            bool                  is_edited {false};
         };
 
         struct row_node
         {
             typedef table_row_id id_type;
             id_type _id() const noexcept { return id; }
-            std::string_view _name() const noexcept
+            std::string _name() const noexcept
             {
                 if (cells.empty()) return "";
                 auto const & cell = cells.front();
-                if (cell.source_literal.has_value())
-                    return *cell.source_literal;
-                return "";
+                return cell.value_to_string();
             }
 
             table_row_id             id;
@@ -190,6 +205,10 @@ namespace arf
             std::vector<typed_value> cells;
             semantic_state           semantic      {semantic_state::valid};
             contamination_state      contamination {contamination_state::clean};
+            
+            // Authorship metadata
+            std::optional<size_t>    source_event_index;   // Points to table row event
+            bool                     is_edited {false};
         };
 
         struct key_node
@@ -206,18 +225,30 @@ namespace arf
             typed_value          value;
             semantic_state       semantic      {semantic_state::valid};
             contamination_state  contamination {contamination_state::clean};
+            
+            // Authorship metadata
+            std::optional<size_t> source_event_index;   // Index into parse_context.events
+            bool                  is_edited {false};    // Modified after materialization
         };
 
         struct comment_node
         {
             comment_id  id;
             std::string text;   // verbatim, may be multi-line, includes "//" and preserves leading whitespace and line breaks
+            
+            // Authorship metadata
+            std::optional<size_t> source_event_index;   // Index into parse_context.events
+            bool                  is_edited {false};    // Modified after materialization
         };
 
         struct paragraph_node
         {
             paragraph_id id;
             std::string  text;  // verbatim, may be multi-line, preserves leading whitespace and line breaks
+            
+            // Authorship metadata
+            std::optional<size_t> source_event_index;   // Index into parse_context.events
+            bool                  is_edited {false};    // Modified after materialization
         };        
 
         std::vector<category_node>   categories_;
@@ -334,7 +365,7 @@ namespace arf
         const row_node* node;
 
         table_row_id id() const noexcept { return node->id; }
-        std::string_view name() const noexcept { return node->_name(); }
+        std::string name() const noexcept { return node->_name(); }
         std::span<const typed_value> cells() const noexcept { return node->cells; }
 
         table_view table() const noexcept;
