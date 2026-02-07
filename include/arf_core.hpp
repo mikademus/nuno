@@ -7,6 +7,7 @@
 #define ARF_CORE_HPP
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -99,6 +100,19 @@ namespace arf
         string_array,
         int_array,
         float_array
+    };
+
+    static std::array<size_t, 9> value_type_to_variant_index =
+    {
+        0, // unresolved -> monostate
+        1, // string -> std::string
+        2, // integer -> int64_t
+        3, // decimal -> float
+        4, // boolean -> bool
+        1, // date -> std::string
+        5, // string_array -> std::vector<typed_value>
+        5, // int_array -> std::vector<typed_value>
+        5, // float_array -> std::vector<typed_value>
     };
 
     enum class type_ascription

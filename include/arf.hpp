@@ -68,8 +68,10 @@ namespace arf
         doc_context out{};
 
         auto parse_ctx = parse(src);
-        auto mat_ctx   = materialise(parse_ctx, opt);
-
+        material_context mat_ctx = 
+            opt.own_parser_data
+                ? materialise(std::move(parse_ctx), opt)
+                :  materialise(parse_ctx, opt);
         out.document = std::move(mat_ctx.document);
 
         out.errors.reserve(parse_ctx.errors.size() + mat_ctx.errors.size());

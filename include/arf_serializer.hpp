@@ -33,8 +33,10 @@ namespace arf
             readable    // Add strategic blank lines (after categories, tables)
         } blank_lines = blank_line_policy::preserve;
 
-        bool emit_comments = true;      // If false, skip comment events
-        bool emit_paragraphs = true;    // If false, skip paragraph events
+        bool emit_comments {true};      // If false, skip comment events
+        bool emit_paragraphs {true};    // If false, skip paragraph events
+
+        bool echo_lines  {false};       // prints each node to be serialised
     };
 
 //========================================================================
@@ -71,7 +73,9 @@ namespace arf
 
         void write_source_item(const document::source_item_ref& ref)
         {
-std::cout << " - write_source_item\n";
+            if (opts_.echo_lines)
+                std::cout << "serializer::write_source_item\n";
+            
             std::visit([&](auto&& id) { write_item(id); }, ref.id);
         }
 
@@ -81,7 +85,9 @@ std::cout << " - write_source_item\n";
 
         void write_item(key_id id)
         {
-std::cout << " - writing key\n";
+            if (opts_.echo_lines)
+                std::cout << "serializer::write_item(keyid)\n";
+
             auto it = doc_.find_node_by_id(doc_.keys_, id);
             assert(it != doc_.keys_.end());
             write_key(*it);
@@ -89,7 +95,9 @@ std::cout << " - writing key\n";
 
         void write_item(category_id id)
         {
-std::cout << " - writing cat\n";
+            if (opts_.echo_lines)
+                std::cout << "serializer::write_item(category_id)\n";
+
             auto it = doc_.find_node_by_id(doc_.categories_, id);
             assert(it != doc_.categories_.end());
             write_category_open(*it);
@@ -97,13 +105,17 @@ std::cout << " - writing cat\n";
 
         void write_item(const document::category_close_marker& marker)
         {
-std::cout << " - writing cat close\n";
+            if (opts_.echo_lines)
+                std::cout << "serializer::write_item(category_close_id)\n";
+
             write_category_close(marker);
         }
 
         void write_item(table_id id)
         {
-std::cout << " - writing table\n";
+            if (opts_.echo_lines)
+                std::cout << "serializer::write_item(table_id)\n";
+
             auto it = doc_.find_node_by_id(doc_.tables_, id);
             assert(it != doc_.tables_.end());
             write_table(*it);
@@ -111,7 +123,9 @@ std::cout << " - writing table\n";
 
         void write_item(table_row_id id)
         {
-std::cout << "  - writing row\n";
+            if (opts_.echo_lines)
+                std::cout << "serializer::write_item(table_row_id)\n";
+
             auto it = doc_.find_node_by_id(doc_.rows_, id);
             assert(it != doc_.rows_.end());
             write_row(*it);
@@ -119,7 +133,9 @@ std::cout << "  - writing row\n";
 
         void write_item(comment_id id)
         {
-std::cout << " - writing comment\n";
+            if (opts_.echo_lines)
+                std::cout << "serializer::write_item(comment_id)\n";
+
             if (!opts_.emit_comments)
                 return;
 
@@ -132,7 +148,9 @@ std::cout << " - writing comment\n";
 
         void write_item(paragraph_id id)
         {
-std::cout << " - writing paragraph\n";
+            if (opts_.echo_lines)
+                std::cout << "serializer::write_item(paragraph_id)\n";
+
             if (!opts_.emit_paragraphs)
                 return;
 
@@ -149,6 +167,9 @@ std::cout << " - writing paragraph\n";
 
         void write_key(const document::key_node& k)
         {                
+            if (opts_.echo_lines)
+                std::cout << "serializer::write_key\n";
+
             // Authored key with source available - emit original
             if (!k.is_edited && k.source_event_index && doc_.source_context_)
             {
@@ -178,6 +199,9 @@ std::cout << " - writing paragraph\n";
 
         void write_category_open(const document::category_node& cat)
         {
+            if (opts_.echo_lines)
+                std::cout << "serializer::write_category_open\n";
+
             bool is_root = (cat.id == category_id{0});
 
             if (is_root)
@@ -218,6 +242,9 @@ std::cout << " - writing paragraph\n";
 
         void write_category_contents(const document::category_node& cat)
         {
+            if (opts_.echo_lines)
+                std::cout << "serializer::write_category_contents\n";
+
             for (const auto& item : cat.ordered_items)
             {
                 write_source_item(item);
@@ -230,6 +257,9 @@ std::cout << " - writing paragraph\n";
 
         void write_category_close(const document::category_close_marker& marker)
         {
+            if (opts_.echo_lines)
+                std::cout << "serializer::write_category_close\n";
+
             --indent_;
 
             // Find the category being closed
@@ -263,6 +293,9 @@ std::cout << " - writing paragraph\n";
 
         void write_table(const document::table_node& tbl)
         {
+            if (opts_.echo_lines)
+                std::cout << "serializer::write_table\n";
+
             // Authored table with source - emit original header
             if (!tbl.is_edited && tbl.source_event_index && doc_.source_context_)
             {
@@ -310,16 +343,24 @@ std::cout << " - writing paragraph\n";
 
         void write_row(const document::row_node& row)
         {
+            if (opts_.echo_lines)
+                std::cout << "serializer::write_row\n";
+
             // Authored row with source - emit original
             if (!row.is_edited && row.source_event_index && doc_.source_context_)
             {
                 const auto& event = doc_.source_context_->document.events[*row.source_event_index];
-                *out_ << event.text << '\n';
+                *out_ << event.text;  
+                
+                // Only add newline if event.text doesn't end with one
+                if (!event.text.empty() && event.text.back() != '\n')
+                    *out_ << '\n';
+                
                 return;
             }
 
             // Generated or edited row - reconstruct
-            write_indent();
+            write_indent();  // ← Only indent when reconstructing
 
             bool first = true;
             for (const auto& cell : row.cells)
@@ -340,6 +381,9 @@ std::cout << " - writing paragraph\n";
 
         void write_comment(const document::comment_node& c)
         {
+            if (opts_.echo_lines)
+                std::cout << "serializer::write_comment\n";
+
             // Comments are always emitted verbatim from stored text
             // (They don't have edit tracking - if you change a comment, you change its .text)
             *out_ << c.text << '\n';
@@ -351,6 +395,9 @@ std::cout << " - writing paragraph\n";
 
         void write_paragraph(const document::paragraph_node& p)
         {
+            if (opts_.echo_lines)
+                std::cout << "serializer::write_paragraph\n";
+
             if (opts_.blank_lines == serializer_options::blank_line_policy::compact
                 && p.text.empty())
             {
@@ -365,6 +412,92 @@ std::cout << " - writing paragraph\n";
         // Value emission
         //----------------------------------------------------------------
 
+        std::string variant_to_string(const value& v)
+        {
+            return std::visit([](auto&& val) -> std::string
+            {
+                using T = std::decay_t<decltype(val)>;
+                
+                if constexpr (std::is_same_v<T, std::string>)
+                    return val;
+                else if constexpr (std::is_same_v<T, int64_t>)
+                    return std::to_string(val);
+                else if constexpr (std::is_same_v<T, double>)
+                    return std::to_string(val);
+                else if constexpr (std::is_same_v<T, bool>)
+                    return val ? "true" : "false";
+                else
+                    return "";
+            }, v);
+        }
+
+        std::optional<int64_t> variant_to_int(const value& v)
+        {
+            return std::visit([](auto&& val) -> std::optional<int64_t>
+            {
+                using T = std::decay_t<decltype(val)>;
+                
+                if constexpr (std::is_same_v<T, int64_t>)
+                    return val;
+                else if constexpr (std::is_same_v<T, double>)
+                    return static_cast<int64_t>(val);
+                else if constexpr (std::is_same_v<T, std::string>)
+                {
+                    int64_t result;
+                    auto [ptr, ec] = std::from_chars(val.data(), val.data() + val.size(), result);
+                    if (ec == std::errc{})
+                        return result;
+                }
+                else if constexpr (std::is_same_v<T, bool>)
+                    return val ? 1 : 0;
+                
+                return std::nullopt;
+            }, v);
+        }
+
+        std::optional<double> variant_to_double(const value& v)
+        {
+            return std::visit([](auto&& val) -> std::optional<double>
+            {
+                using T = std::decay_t<decltype(val)>;
+                
+                if constexpr (std::is_same_v<T, double>)
+                    return val;
+                else if constexpr (std::is_same_v<T, int64_t>)
+                    return static_cast<double>(val);
+                else if constexpr (std::is_same_v<T, std::string>)
+                {
+                    char* end;
+                    double result = std::strtod(val.data(), &end);
+                    if (end == val.data() + val.size())
+                        return result;
+                }
+                else if constexpr (std::is_same_v<T, bool>)
+                    return val ? 1.0 : 0.0;
+                
+                return std::nullopt;
+            }, v);
+        }
+
+        bool variant_to_bool(const value& v)
+        {
+            return std::visit([](auto&& val) -> bool
+            {
+                using T = std::decay_t<decltype(val)>;
+                
+                if constexpr (std::is_same_v<T, bool>)
+                    return val;
+                else if constexpr (std::is_same_v<T, int64_t>)
+                    return val != 0;
+                else if constexpr (std::is_same_v<T, double>)
+                    return val != 0.0;
+                else if constexpr (std::is_same_v<T, std::string>)
+                    return !val.empty() && val != "false" && val != "0";
+                else
+                    return false;
+            }, v);
+        }
+
         void write_value(const typed_value& tv)
         {
             // For cells and keys, we'd need to know their parent node to check source
@@ -375,46 +508,89 @@ std::cout << " - writing paragraph\n";
 
         void write_value_semantic(const typed_value& tv)
         {
-            switch (tv.type)
+            // Check if variant matches declared type
+            bool matches = value_type_to_variant_index[static_cast<size_t>(tv.type)] 
+                        == tv.val.index();
+            
+            if (!matches && tv.type_source == type_ascription::declared)
             {
-                case value_type::string:
-                    *out_ << std::get<std::string>(tv.val);
-                    break;
+                // DECLARED type - convert variant to match declaration
+                write_converted_to_type(tv.val, tv.type);
+                return;
+            }
+            
+            if (opts_.echo_lines)
+                std::cout << "serializer::write_value_semantic\n";
 
-                case value_type::integer:
-                    *out_ << std::get<int64_t>(tv.val);
-                    break;
-
-                case value_type::decimal:
-                    *out_ << std::get<double>(tv.val);
-                    break;
-
-                case value_type::boolean:
-                    *out_ << (std::get<bool>(tv.val) ? "true" : "false");
-                    break;
-
-                case value_type::string_array:
-                case value_type::int_array:
-                case value_type::float_array:
+            // TACIT type OR already matching - emit actual variant contents
+            std::visit([this](auto&& value)
+            {
+                using T = std::decay_t<decltype(value)>;
+                
+                if constexpr (std::is_same_v<T, std::monostate>)
                 {
-                    auto const& arr = std::get<std::vector<typed_value>>(tv.val);
+                    // Empty
+                }
+                else if constexpr (std::is_same_v<T, std::string>)
+                {
+                    *out_ << value;
+                }
+                else if constexpr (std::is_same_v<T, int64_t>)
+                {
+                    *out_ << value;
+                }
+                else if constexpr (std::is_same_v<T, double>)
+                {
+                    *out_ << value;
+                }
+                else if constexpr (std::is_same_v<T, bool>)
+                {
+                    *out_ << (value ? "true" : "false");
+                }
+                else if constexpr (std::is_same_v<T, std::vector<typed_value>>)
+                {
                     bool first = true;
-                    for (auto const& elem : arr)
+                    for (auto const& elem : value)
                     {
-                        if (!first)
-                            *out_ << '|';
+                        if (!first) *out_ << '|';
                         write_value(elem);
                         first = false;
                     }
-                    break;
                 }
+            }, tv.val);
+        }
 
-                case value_type::unresolved:
-                    // Empty cell or missing value
+        void write_converted_to_type(const value& v, value_type target)
+        {
+            if (opts_.echo_lines)
+                std::cout << "serializer::write_converted_to_type\n";
+
+            switch (target)
+            {
+                case value_type::string:
+                    *out_ << variant_to_string(v);
                     break;
-
+                    
+                case value_type::integer:
+                    if (auto i = variant_to_int(v))
+                        *out_ << *i;
+                    else
+                        *out_ << "0";  // Fallback for unconvertible
+                    break;
+                    
+                case value_type::decimal:
+                    if (auto d = variant_to_double(v))
+                        *out_ << *d;
+                    else
+                        *out_ << "0.0";
+                    break;
+                    
+                case value_type::boolean:
+                    *out_ << (variant_to_bool(v) ? "true" : "false");
+                    break;
+                    
                 default:
-                    *out_ << std::get<std::string>(tv.val);
+                    *out_ << variant_to_string(v);  // Fallback
                     break;
             }
         }

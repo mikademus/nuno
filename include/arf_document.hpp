@@ -97,15 +97,15 @@ namespace arf
         size_t comment_count() const noexcept { return comments_.size(); }
         size_t paragraph_count() const noexcept { return paragraphs_.size(); }
 
+        category_id create_root();
         category_id create_category(category_id id, std::string_view name, category_id parent);
         comment_id create_comment(std::string text);
         paragraph_id create_paragraph(std::string text);
 
+    // NOTE: Should this be public?
         contamination_state contamination {contamination_state::clean};
 
-    private:
-
-        category_id create_root();
+    //private:
 
         //------------------------------------------------------------------------
         // Internal storage (fully normalised)
@@ -257,6 +257,7 @@ namespace arf
             bool                  is_edited {false};    // Modified after materialization
         };        
 
+    private:
         std::unique_ptr<parse_context> source_context_;
 
         std::vector<category_node>   categories_;
@@ -293,6 +294,18 @@ namespace arf
 
         friend struct materialiser;
         friend class serializer;
+
+    public:
+
+    // Priviliged access for debug purpose. Should be removed when editor is done.
+        std::vector<category_node>&   access_category_nodes() { return categories_; }
+        std::vector<table_node>&      access_table_nodes() { return tables_; }
+        std::vector<column_node>&     access_column_nodes() { return columns_; }
+        std::vector<row_node>&        access_row_nodes() { return rows_; }
+        std::vector<key_node>&        access_key_nodes() { return keys_; }
+        std::vector<comment_node>&    access_comment_nodes() { return comments_; }
+        std::vector<paragraph_node>&  access_paragraph_nodes() { return paragraphs_; }
+        const parse_context* get_source_context() const { return source_context_.get(); }
     };
 
 //========================================================================
@@ -409,12 +422,16 @@ namespace arf
 
     inline category_id document::create_root()
     {
-        category_node root;
-        root.id     = category_id{0};
-        root.name   = detail::ROOT_CATEGORY_NAME.data();
-        root.parent = invalid_id<category_tag>();
+        if (categories_.empty())
+        {
+            category_node root;
+            root.id     = category_id{0};
+            root.name   = detail::ROOT_CATEGORY_NAME.data();
+            root.parent = invalid_id<category_tag>();
 
-        categories_.push_back(std::move(root));
+            categories_.push_back(std::move(root));
+        }
+        assert (categories_.front().id == category_id{0});        
         return category_id{0};
     }    
 
