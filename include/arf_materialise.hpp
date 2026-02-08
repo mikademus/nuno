@@ -221,6 +221,7 @@ namespace
     {
         typed_value tv;
         tv.origin = value_locus::key_value;
+        tv.creation = creation_state::authored;
 
         if (auto b = is_bool(s); b.has_value())
         {
@@ -351,8 +352,8 @@ namespace
         tv.type_source = type_ascription::declared;
         tv.origin      = origin;
         tv.semantic    = semantic_state::valid;
+        tv.creation    = creation_state::authored;
 
-        // All arrays are now vector<typed_value>
         tv.val = std::vector<typed_value>{};
         auto& values = std::get<std::vector<typed_value>>(tv.val);
 
@@ -381,6 +382,7 @@ namespace
             {
                 elem.type          = value_type::unresolved;
                 elem.val           = std::monostate{};
+                elem.creation      = creation_state::authored;
                 elem.type_source   = type_ascription::tacit;
                 elem.semantic      = semantic_state::valid;
                 elem.contamination = contamination_state::clean;
@@ -441,6 +443,7 @@ namespace
                 array_contaminated = true;
             }
 
+            elem.creation = creation_state::authored;
             values.push_back(std::move(elem));
 
             if (next == std::string_view::npos)
@@ -459,6 +462,7 @@ namespace
             elem.type_source   = type_ascription::tacit;
             elem.semantic      = semantic_state::valid;
             elem.contamination = contamination_state::clean;
+            elem.creation      = creation_state::authored;
 
             values.push_back(std::move(elem));
         }
@@ -487,6 +491,7 @@ namespace
     {
         typed_value tv;
         tv.origin = value_locus::table_cell;
+        tv.creation = creation_state::authored;
 
         // Unresolved or string → accept verbatim
         if (column_type == value_type::unresolved ||
@@ -537,6 +542,7 @@ namespace
             tv.type_source = type_ascription::tacit;
             tv.origin      = value_locus::key_value;
             tv.semantic    = semantic_state::invalid;
+            tv.creation    = creation_state::authored;
             return tv;
         }
 
@@ -572,6 +578,7 @@ namespace
             tv.type_source = type_ascription::tacit;
             tv.origin      = value_locus::key_value;
             tv.semantic    = semantic_state::invalid;
+            tv.creation    = creation_state::authored;
             return tv;
         }
     }
@@ -710,9 +717,10 @@ namespace
 
         auto it = std::ranges::find_if(doc_.categories_, [doc_id](document::category_node const &cat){return cat.id.val == doc_id.val;});
         assert (it != doc_.categories_.end());
-        it->source_event_index_open = parse_idx;
-        
-        doc_.categories_.back().semantic = semantic_state::valid;
+
+        it->source_event_index_open = parse_idx;        
+        it->creation = creation_state::authored;
+        it->semantic = semantic_state::valid;
 
         cst_to_doc_category_[cid.val] = doc_id;
         insert_source_item(doc_id);
@@ -818,17 +826,19 @@ namespace
         const auto& cst_tbl = cst_.tables[tid.val];
 
         document::table_node tbl;
-        tbl.id      = tid;
-        tbl.owner   = stack_.back();
+        tbl.id       = tid;
+        tbl.creation = creation_state::authored;
+        tbl.owner    = stack_.back();
         tbl.source_event_index = parse_idx;
         tbl.rows.clear();
 
         for (const auto& cst_col : cst_tbl.columns)
         {
             document::column_node col_;
-            col_.col   = cst_col;
-            col_.table = tid;
-            col_.owner = tbl.owner;
+            col_.col      = cst_col;
+            col_.table    = tid;
+            col_.creation = creation_state::authored;
+            col_.owner    = tbl.owner;
             col_.source_event_index = parse_idx;
 
             column & col = col_.col;
@@ -907,11 +917,12 @@ namespace
         }
 
         document::row_node row;
-        row.id    = rid;
-        row.table = tbl.id;
-        row.owner = stack_.back();
-        row.semantic = semantic_state::valid;
-        row.contamination = contamination_state::clean;        
+        row.id                 = rid;
+        row.table              = tbl.id;
+        row.creation           = creation_state::authored;
+        row.owner              = stack_.back();
+        row.semantic           = semantic_state::valid;
+        row.contamination      = contamination_state::clean;        
         row.source_event_index = parse_idx;
         row.cells.reserve(tbl.columns.size());
 
@@ -987,6 +998,7 @@ namespace
         document::key_node k;
         k.id    = kid;
         k.name  = cst.name;
+        k.creation = creation_state::authored;
         k.owner = stack_.back(); 
         k.source_event_index = parse_idx;
 
@@ -1047,8 +1059,10 @@ namespace
             k.contamination = contamination_state::contaminated;
         else if (target_is_array)
         {
-            for (auto const& elem : std::get<std::vector<typed_value>>(tv.val))
+            for (auto& elem : std::get<std::vector<typed_value>>(tv.val))
             {
+                elem.creation = creation_state::authored;
+
                 if (elem.semantic == semantic_state::invalid ||
                     elem.contamination == contamination_state::contaminated)
                 {

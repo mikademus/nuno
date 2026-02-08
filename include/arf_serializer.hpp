@@ -165,44 +165,47 @@ namespace arf
             write_paragraph(*it);
         }
 
-        //----------------------------------------------------------------
-        // Key
-        //----------------------------------------------------------------
+//----------------------------------------------------------------
+// Key
+//----------------------------------------------------------------
 
         void write_key(const document::key_node& k)
-        {                
+        {
             if (opts_.echo_lines)
                 DBG_EMIT << "serializer::write_key\n";
 
             bool force_reconstruct = 
                 (opts_.types != serializer_options::type_policy::preserve);
 
-            // Authored key with source available - emit original
-            if (!force_reconstruct && !k.is_edited && k.source_event_index && doc_.source_context_)
+            // Can replay source?
+            bool can_replay = (k.creation == creation_state::authored)
+                            && !k.is_edited
+                            && !force_reconstruct
+                            && k.source_event_index.has_value()
+                            && doc_.source_context_;
+
+            if (can_replay)
             {
                 const auto& event = doc_.source_context_->document.events[*k.source_event_index];
                 *out_ << event.text << '\n';
                 return;
             }
 
-            // Generated or edited key - reconstruct
+            // Reconstruct
             write_indent();
             *out_ << k.name;
             
-            // Type annotation
             if (should_emit_type(k.value.type_source, k.value.type))
-            {
                 *out_ << ":" << type_string(k.value.type);
-            }
             
             *out_ << " = ";
             write_value(k.value);
             *out_ << '\n';
         }
 
-        //----------------------------------------------------------------
-        // Category open
-        //----------------------------------------------------------------
+//----------------------------------------------------------------
+// Category open
+//----------------------------------------------------------------
 
         void write_category_open(const document::category_node& cat)
         {
@@ -213,13 +216,17 @@ namespace arf
 
             if (is_root)
             {
-                // Root category: just emit its contents (no header)
                 write_category_contents(cat);
                 return;
             }
 
-            // Authored category with source - emit original open
-            if (!cat.is_edited && cat.source_event_index_open && doc_.source_context_)
+            // Can replay source?
+            bool can_replay = (cat.creation == creation_state::authored)
+                            && !cat.is_edited
+                            && cat.source_event_index_open.has_value()
+                            && doc_.source_context_;
+
+            if (can_replay)
             {
                 const auto& event = doc_.source_context_->document.events[*cat.source_event_index_open];
                 *out_ << event.text << '\n';
@@ -228,7 +235,7 @@ namespace arf
                 return;
             }
 
-            // Generated or edited category - reconstruct
+            // Reconstruct
             bool is_top_level = (cat.parent == category_id{0});
 
             if (is_top_level)
@@ -247,6 +254,10 @@ namespace arf
             write_category_contents(cat);
         }
 
+//----------------------------------------------------------------
+// Category contents
+//----------------------------------------------------------------
+
         void write_category_contents(const document::category_node& cat)
         {
             if (opts_.echo_lines)
@@ -258,9 +269,9 @@ namespace arf
             }
         }
 
-        //----------------------------------------------------------------
-        // Category close
-        //----------------------------------------------------------------
+//----------------------------------------------------------------
+// Category close
+//----------------------------------------------------------------
 
         void write_category_close(const document::category_close_marker& marker)
         {
@@ -269,49 +280,58 @@ namespace arf
 
             --indent_;
 
-            // Find the category being closed
             auto it = doc_.find_node_by_id(doc_.categories_, marker.which);
             assert(it != doc_.categories_.end());
             const auto& cat = *it;
 
-            // Authored close with source - emit original
-            if (!cat.is_edited && cat.source_event_index_close && doc_.source_context_)
+            // Can replay source?
+            bool can_replay = (cat.creation == creation_state::authored)
+                            && !cat.is_edited
+                            && cat.source_event_index_close.has_value()
+                            && doc_.source_context_;
+
+            if (can_replay)
             {
                 const auto& event = doc_.source_context_->document.events[*cat.source_event_index_close];
                 *out_ << event.text << '\n';
                 return;
             }
 
-            // Generated or edited - reconstruct
+            // Reconstruct
             write_indent();
             if (marker.form == document::category_close_form::shorthand)
-            {
                 *out_ << "/\n";
-            }
             else
-            {
                 *out_ << "/" << cat.name << '\n';
-            }
         }
 
-        //----------------------------------------------------------------
-        // Table
-        //----------------------------------------------------------------
+//----------------------------------------------------------------
+// Table
+//----------------------------------------------------------------
 
         void write_table(const document::table_node& tbl)
         {
             if (opts_.echo_lines)
                 DBG_EMIT << "serializer::write_table\n";
 
-            // Authored table with source - emit original header
-            if (!tbl.is_edited && tbl.source_event_index && doc_.source_context_)
+            bool force_reconstruct = 
+                (opts_.types != serializer_options::type_policy::preserve);
+
+            // Can replay source?
+            bool can_replay = (tbl.creation == creation_state::authored)
+                            && !tbl.is_edited
+                            && !force_reconstruct
+                            && tbl.source_event_index.has_value()
+                            && doc_.source_context_;
+
+            if (can_replay)
             {
                 const auto& event = doc_.source_context_->document.events[*tbl.source_event_index];
                 *out_ << event.text << '\n';
             }
             else
             {
-                // Generated or edited table - reconstruct header
+                // Reconstruct header
                 write_indent();
                 *out_ << "# ";
 
@@ -327,9 +347,7 @@ namespace arf
                     *out_ << it->col.name;
 
                     if (should_emit_type(it->col.type_source, it->col.type))
-                    {
                         *out_ << ":" << type_string(it->col.type);
-                    }
 
                     first = false;
                 }
@@ -337,37 +355,40 @@ namespace arf
                 *out_ << '\n';
             }
 
-            // Emit table contents (rows, comments, paragraphs, subcategories)
+            // Emit table contents
             for (const auto& item : tbl.ordered_items)
-            {
                 write_source_item(item);
-            }
         }
 
-        //----------------------------------------------------------------
-        // Table row
-        //----------------------------------------------------------------
+//----------------------------------------------------------------
+// Table row
+//----------------------------------------------------------------
 
         void write_row(const document::row_node& row)
         {
             if (opts_.echo_lines)
                 DBG_EMIT << "serializer::write_row\n";
 
-            // Authored row with source - emit original
-            if (!row.is_edited && row.source_event_index && doc_.source_context_)
+            // Can replay source?
+            bool can_replay = (row.creation == creation_state::authored)
+                            && !row.is_edited
+                            && row.source_event_index.has_value()
+                            && doc_.source_context_;
+
+            if (can_replay)
             {
                 const auto& event = doc_.source_context_->document.events[*row.source_event_index];
-                *out_ << event.text;  
+                *out_ << event.text;
                 
-                // Only add newline if event.text doesn't end with one
                 if (!event.text.empty() && event.text.back() != '\n')
                     *out_ << '\n';
                 
                 return;
             }
 
-            // Generated or edited row - reconstruct
-            write_indent();  // ← Only indent when reconstructing
+            // Reconstruct
+            write_indent();
+            *out_ << "  ";  // Table row base indentation
 
             bool first = true;
             for (const auto& cell : row.cells)
@@ -380,11 +401,11 @@ namespace arf
             }
 
             *out_ << '\n';
-        }
+        }        
 
-        //----------------------------------------------------------------
-        // Comment
-        //----------------------------------------------------------------
+//----------------------------------------------------------------
+// Comment
+//----------------------------------------------------------------
 
         void write_comment(const document::comment_node& c)
         {
@@ -396,9 +417,9 @@ namespace arf
             *out_ << c.text << '\n';
         }
 
-        //----------------------------------------------------------------
-        // Paragraph
-        //----------------------------------------------------------------
+//----------------------------------------------------------------
+// Paragraph
+//----------------------------------------------------------------
 
         void write_paragraph(const document::paragraph_node& p)
         {
@@ -415,9 +436,9 @@ namespace arf
             *out_ << p.text << '\n';
         }
 
-        //----------------------------------------------------------------
-        // Value emission
-        //----------------------------------------------------------------
+//----------------------------------------------------------------
+// Value emission
+//----------------------------------------------------------------
 
         std::string variant_to_string(const value& v)
         {
