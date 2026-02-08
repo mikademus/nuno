@@ -107,7 +107,7 @@ namespace arf
         0, // unresolved -> monostate
         1, // string -> std::string
         2, // integer -> int64_t
-        3, // decimal -> float
+        3, // decimal -> double
         4, // boolean -> bool
         1, // date -> std::string
         5, // string_array -> std::vector<typed_value>
@@ -124,7 +124,8 @@ namespace arf
     enum class value_locus
     {
         key_value,  // declared via key = value
-        table_cell  // declared inside a table row
+        table_cell, // declared inside a table row
+        predicate,  // created as the comparator in a query predicate
     };
 
     enum class creation_state
@@ -356,13 +357,17 @@ namespace arf
         };
 
         template<typename T>
-        inline typed_value make_typed_value( T value )
+        inline typed_value make_typed_value( T value, value_locus orig, creation_state cs )
         {
             return typed_value{
                 .val  = typename vt_conv<T>::stype(value),
                 .type = static_cast<value_type>(vt_conv<T>::vtype),
                 .type_source = type_ascription::tacit,
-                .semantic = semantic_state::valid
+                .origin = orig,
+                .semantic = semantic_state::valid,
+                .contamination = contamination_state::clean,
+                .creation = cs,
+                .is_edited = false
             };
         }
     }

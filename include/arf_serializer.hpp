@@ -63,12 +63,32 @@ namespace arf
         const document&    doc_;
         std::ostream*      out_;        
         serializer_options opts_;
-        size_t             indent_ {0};  // Current indentation level
 
+        static constexpr size_t STANDARD_INDENT = 4;
+        static constexpr size_t TABLE_ROW_OFFSET = 2;
+
+        size_t indent_ {0};  // Current category nesting depth
+        size_t current_spaces_ {0};  // Actual leading spaces (physical)
+               
     private:
-        //----------------------------------------------------------------
-        // Source item dispatcher
-        //----------------------------------------------------------------
+
+    //----------------------------------------------------------------
+    // Indentation inference
+    //----------------------------------------------------------------
+
+        size_t infer_indent_for_key(const document::key_node& k);
+        size_t infer_indent_for_table(const document::table_node& t);
+        size_t infer_indent_for_category(const document::category_node& c);
+        
+    //----------------------------------------------------------------
+    // Extract indentation from source
+    //----------------------------------------------------------------
+
+        std::optional<size_t> extract_indent_from_source(size_t event_index);
+    
+    //----------------------------------------------------------------
+    // Source item dispatcher
+    //----------------------------------------------------------------
 
         void write_source_item(const document::source_item_ref& ref)
         {
@@ -95,7 +115,7 @@ namespace arf
         void write_item(category_id id)
         {
             if (opts_.echo_lines)
-                DBG_EMIT << "serializer::write_item(category_id)\n";
+                DBG_EMIT << "serializer::write_item(category_id), ID = " << id << std::endl;
 
             auto it = doc_.find_node_by_id(doc_.categories_, id);
             assert(it != doc_.categories_.end());
@@ -105,7 +125,7 @@ namespace arf
         void write_item(const document::category_close_marker& marker)
         {
             if (opts_.echo_lines)
-                DBG_EMIT << "serializer::write_item(category_close_id)\n";
+                DBG_EMIT << "serializer::write_item(category_close_id), ID = " << marker.which << std::endl;
 
             write_category_close(marker);
         }
@@ -192,6 +212,7 @@ namespace arf
             }
 
             // Reconstruct
+            set_indent_for_key(k);
             write_indent();
             *out_ << k.name;
             
@@ -210,7 +231,7 @@ namespace arf
         void write_category_open(const document::category_node& cat)
         {
             if (opts_.echo_lines)
-                DBG_EMIT << "serializer::write_category_open\n";
+                DBG_EMIT << "serializer::write_category_open: " << cat.name << std::endl;
 
             bool is_root = (cat.id == category_id{0});
 
@@ -238,6 +259,8 @@ namespace arf
             // Reconstruct
             bool is_top_level = (cat.parent == category_id{0});
 
+            set_indent_for_category(cat);
+            
             if (is_top_level)
             {
                 write_indent();
@@ -332,6 +355,7 @@ namespace arf
             else
             {
                 // Reconstruct header
+                set_indent_for_table(tbl);                
                 write_indent();
                 *out_ << "# ";
 
@@ -387,6 +411,8 @@ namespace arf
             }
 
             // Reconstruct
+            // Note: Rows inherit table indentation + fixed offset
+            current_spaces_ = infer_indent_for_table( *doc_.table(row.table)->node );            
             write_indent();
             *out_ << "  ";  // Table row base indentation
 
@@ -665,10 +691,174 @@ namespace arf
 
         void write_indent()
         {
-            for (size_t i = 0; i < indent_; ++i)
-                *out_ << "    ";  // 4 spaces per level
+            for (size_t i = 0; i < current_spaces_; ++i)
+                *out_ << ' ';
         }
+
+        void set_indent_for_key(const document::key_node& k)
+        {
+            current_spaces_ = infer_indent_for_key(k);
+        }
+        
+        void set_indent_for_table(const document::table_node& t)
+        {
+            current_spaces_ = infer_indent_for_table(t);
+        }
+        
+        void set_indent_for_category(const document::category_node& c)
+        {
+            current_spaces_ = infer_indent_for_category(c);
+        }        
     };
+
+    inline size_t serializer::infer_indent_for_key(const document::key_node& k)
+    {
+        // If this key is authored and unedited, use its source
+        if (k.creation == creation_state::authored 
+            && !k.is_edited 
+            && k.source_event_index.has_value())
+        {
+            if (auto indent = extract_indent_from_source(*k.source_event_index))
+                return *indent;
+        }
+        
+        // Look for authored siblings in same category
+        auto cat_it = doc_.find_node_by_id(doc_.categories_, k.owner);
+        if (cat_it != doc_.categories_.end())
+        {
+            for (auto sibling_id : cat_it->keys)
+            {
+                if (sibling_id == k.id)
+                    continue;  // Skip self
+                
+                auto sibling_it = doc_.find_node_by_id(doc_.keys_, sibling_id);
+                if (sibling_it == doc_.keys_.end())
+                    continue;
+                
+                const auto& sibling = *sibling_it;
+                
+                // Found authored, unedited sibling with source
+                if (sibling.creation == creation_state::authored 
+                    && !sibling.is_edited 
+                    && sibling.source_event_index.has_value())
+                {
+                    if (auto indent = extract_indent_from_source(*sibling.source_event_index))
+                        return *indent;
+                }
+            }
+        }
+        
+        // Fallback: use current category nesting depth
+        return indent_ * STANDARD_INDENT;
+    }
+
+    inline size_t serializer::infer_indent_for_table(const document::table_node& t)
+    {
+        // If this table is authored and unedited, use its source
+        if (t.creation == creation_state::authored 
+            && !t.is_edited 
+            && t.source_event_index.has_value())
+        {
+            if (auto indent = extract_indent_from_source(*t.source_event_index))
+                return *indent;
+        }
+        
+        // Look for authored sibling tables in same category
+        auto cat_it = doc_.find_node_by_id(doc_.categories_, t.owner);
+        if (cat_it != doc_.categories_.end())
+        {
+            for (auto sibling_id : cat_it->tables)
+            {
+                if (sibling_id == t.id)
+                    continue;  // Skip self
+                
+                auto sibling_it = doc_.find_node_by_id(doc_.tables_, sibling_id);
+                if (sibling_it == doc_.tables_.end())
+                    continue;
+                
+                const auto& sibling = *sibling_it;
+                
+                if (sibling.creation == creation_state::authored 
+                    && !sibling.is_edited 
+                    && sibling.source_event_index.has_value())
+                {
+                    if (auto indent = extract_indent_from_source(*sibling.source_event_index))
+                        return *indent;
+                }
+            }
+        }
+        
+        // Fallback: use current category nesting depth
+        return indent_ * STANDARD_INDENT;
+    }
+
+    inline size_t serializer::infer_indent_for_category(const document::category_node& c)
+    {
+        // If this category is authored and unedited, use its source
+        if (c.creation == creation_state::authored 
+            && !c.is_edited 
+            && c.source_event_index_open.has_value())
+        {
+            if (auto indent = extract_indent_from_source(*c.source_event_index_open))
+                return *indent;
+        }
+        
+        // For top-level categories, always use zero indent
+        if (c.parent == category_id{0})
+            return 0;
+        
+        // Look for authored sibling subcategories in same parent
+        auto parent_it = doc_.find_node_by_id(doc_.categories_, c.parent);
+        if (parent_it != doc_.categories_.end())
+        {
+            for (auto sibling_id : parent_it->children)
+            {
+                if (sibling_id == c.id)
+                    continue;  // Skip self
+                
+                auto sibling_it = doc_.find_node_by_id(doc_.categories_, sibling_id);
+                if (sibling_it == doc_.categories_.end())
+                    continue;
+                
+                const auto& sibling = *sibling_it;
+                
+                if (sibling.creation == creation_state::authored 
+                    && !sibling.is_edited 
+                    && sibling.source_event_index_open.has_value())
+                {
+                    if (auto indent = extract_indent_from_source(*sibling.source_event_index_open))
+                        return *indent;
+                }
+            }
+        }
+        
+        // Fallback: use parent indent + standard offset
+        return (indent_ - 1) * STANDARD_INDENT;
+    }
+
+    inline std::optional<size_t> serializer::extract_indent_from_source(size_t event_index)
+    {
+        if (!doc_.source_context_)
+            return std::nullopt;
+        
+        if (event_index >= doc_.source_context_->document.events.size())
+            return std::nullopt;
+        
+        const auto& event = doc_.source_context_->document.events[event_index];
+        const auto& text = event.text;
+        
+        // Count leading spaces
+        size_t spaces = 0;
+        for (char c : text)
+        {
+            if (c == ' ')
+                ++spaces;
+            else
+                break;
+        }
+        
+        return spaces;
+    }
 
     #undef DBG_EMIT
 

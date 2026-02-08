@@ -135,6 +135,11 @@ namespace arf
         paragraph_id create_paragraph(std::string text);
 
     // NOTE: Should this really be public?
+    // NOTE: Aggregation model of contamination:
+    //       - An element contaminates its item
+    //       - Contamination propagates through the nodes
+    //       - Finally the document gets the contamination flag.
+    //       = THIS MUST BE MAINTAINED
         contamination_state contamination {contamination_state::clean};
 
     //private:
@@ -318,7 +323,7 @@ namespace arf
 
         category_id id() const noexcept { return node->id; }
         std::string_view name() const noexcept { return node->name; }
-        bool is_root() const noexcept { return node->parent == category_id{}; }
+        bool is_root() const noexcept { return node->parent == invalid_id<category_tag>(); }
 
         std::span<const category_id> children() const noexcept { return node->children; }
         std::span<const table_id> tables() const noexcept { return node->tables; }

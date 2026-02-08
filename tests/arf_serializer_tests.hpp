@@ -549,6 +549,103 @@ static bool array_with_empty_elements()
     return true;
 }
 
+// arf_serializer_tests.hpp
+
+static bool indent_inferred_from_sibling_key()
+{
+    // Create a minimal document with source context
+    constexpr std::string_view src = 
+        "test:\n"
+        "    authored_key = 1\n";
+    
+    auto ctx = load(src);
+    EXPECT(!ctx.has_errors(), "document should parse without errors");
+    
+    // Now add a generated key to the same category
+    auto cat = ctx.document.category("test");
+    EXPECT(cat.has_value(), "test category must exist");
+    
+    document::key_node k;
+    k.id = key_id{ctx.document.key_count()};
+    k.name = "generated_key";
+    k.owner = cat->id();
+    k.creation = creation_state::generated;
+    k.is_edited = false;
+    k.value.type = value_type::integer;
+    k.value.type_source = type_ascription::tacit;
+    k.value.val = int64_t(2);
+    k.value.creation = creation_state::generated;
+    k.value.origin = value_locus::key_value;
+    
+    ctx.document.access_key_nodes().push_back(k);
+    
+    // Add to category's key list and ordered_items
+    auto& cat_node = ctx.document.access_category_nodes()[cat->id().val];
+    cat_node.keys.push_back(k.id);
+    cat_node.ordered_items.push_back(document::source_item_ref{k.id});
+    
+    // Serialize
+    std::ostringstream out;
+    serializer s(ctx.document);
+    s.write(out);
+    
+    std::string expected = 
+        "test:\n"
+        "    authored_key = 1\n"
+        "    generated_key = 2\n";  // Should infer 4-space indent from sibling
+    
+    EXPECT(out.str() == expected, "generated key should infer indent from authored sibling");
+    
+    return true;
+}
+
+static bool indent_fallback_when_no_siblings()
+{
+    // Create document programmatically (no source context)
+    document doc;
+    doc.create_root();
+    
+    auto cat_id = doc.create_category(category_id{1}, "test", category_id{0});
+    
+    // Create generated key with no siblings
+    document::key_node k;
+    k.id = key_id{0};
+    k.name = "solo_key";
+    k.owner = cat_id;
+    k.creation = creation_state::generated;
+    k.is_edited = false;
+    k.value.type = value_type::integer;
+    k.value.type_source = type_ascription::tacit;
+    k.value.val = int64_t(42);
+    k.value.creation = creation_state::generated;
+    k.value.origin = value_locus::key_value;
+    
+    doc.access_key_nodes().push_back(k);
+    
+    // Add to category structure
+    auto& cat_node = doc.access_category_nodes()[cat_id.val];
+    cat_node.keys.push_back(k.id);
+    cat_node.ordered_items.push_back(document::source_item_ref{k.id});  // ← FIXED: Only the key!
+    cat_node.creation = creation_state::generated;
+    
+    // Add category to root's structure
+    auto& root = doc.access_category_nodes()[0];
+    root.ordered_items.push_back(document::source_item_ref{cat_id});  // ← Root lists the category
+    
+    // Serialize
+    std::ostringstream out;
+    serializer s(doc);
+    s.write(out);
+    
+    std::string expected = 
+        "test:\n"
+        "    solo_key = 42\n";
+    
+    EXPECT(out.str() == expected, "fallback indent incorrect");
+    
+    return true;
+}
+
 //============================================================================
 // Test Runner
 //============================================================================
@@ -585,6 +682,10 @@ inline void run_seriealizer_tests()
     RUN_TEST(option_force_tacit_types);
     RUN_TEST(option_skip_comments);
     RUN_TEST(option_compact_blank_lines);
+
+    SUBCAT("Indentation inference");
+    RUN_TEST(indent_inferred_from_sibling_key);
+    RUN_TEST(indent_fallback_when_no_siblings);  
     
     SUBCAT("Edge Cases");
     RUN_TEST(empty_document);

@@ -247,17 +247,17 @@ namespace arf
     concept column_ref_type = std::is_integral_v<T> || std::convertible_to<T, std::string_view>;
 
     template<column_ref_type Col, typename T>
-    predicate eq(Col col, T val) { return {col, predicate_op::eq, detail::make_typed_value(val)}; }
+    predicate eq(Col col, T val) { return {col, predicate_op::eq, detail::make_typed_value(val, value_locus::predicate, creation_state::generated)}; }
     template<column_ref_type Col, typename T>
-    predicate ne(Col col, T val) { return {col, predicate_op::ne, detail::make_typed_value(val)}; }
+    predicate ne(Col col, T val) { return {col, predicate_op::ne, detail::make_typed_value(val, value_locus::predicate, creation_state::generated)}; }
     template<column_ref_type Col, typename T>
-    predicate lt(Col col, T val) { return {col, predicate_op::lt, detail::make_typed_value(val)}; }
+    predicate lt(Col col, T val) { return {col, predicate_op::lt, detail::make_typed_value(val, value_locus::predicate, creation_state::generated)}; }
     template<column_ref_type Col, typename T>
-    predicate le(Col col, T val) { return {col, predicate_op::le, detail::make_typed_value(val)}; }
+    predicate le(Col col, T val) { return {col, predicate_op::le, detail::make_typed_value(val, value_locus::predicate, creation_state::generated)}; }
     template<column_ref_type Col, typename T>
-    predicate gt(Col col, T val) { return {col, predicate_op::gt, detail::make_typed_value(val)}; }
+    predicate gt(Col col, T val) { return {col, predicate_op::gt, detail::make_typed_value(val, value_locus::predicate, creation_state::generated)}; }
     template<column_ref_type Col, typename T>
-    predicate ge(Col col, T val) { return {col, predicate_op::ge, detail::make_typed_value(val)}; }
+    predicate ge(Col col, T val) { return {col, predicate_op::ge, detail::make_typed_value(val, value_locus::predicate, creation_state::generated)}; }
 
 //======================================================================
 // Query handle
