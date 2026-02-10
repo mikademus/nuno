@@ -164,14 +164,6 @@ namespace
         }
     }
 
-    inline bool value_matches_type(value_type v, value_type expected)
-    {
-        if (expected == value_type::unresolved)
-            return true;
-
-        return v == expected;
-    } 
-
     std::optional<bool> is_bool(std::string_view s)
     {
         static std::unordered_map<std::string_view, bool> booleans = 

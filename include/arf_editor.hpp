@@ -401,20 +401,24 @@ namespace arf
         
         // Re-evaluate contamination
         bool has_invalid = false;
-        for (auto& e : arr) {
+        for (auto& e : arr) 
+        {
             if (e.semantic == semantic_state::invalid) {
                 has_invalid = true;
                 break;
             }
         }
         
-        if (has_invalid) {
+        if (has_invalid) 
+        {
             tv.contamination = contamination_state::contaminated;
             kn->contamination = contamination_state::contaminated;
             doc_.mark_key_contaminated(key);
-        } else {
+        } 
+        else 
+        {
             tv.contamination = contamination_state::clean;
-            doc_.clear_key_contamination(key);
+            doc_.request_clear_contamination(key);
         }
         
         kn->is_edited = true;
@@ -486,13 +490,16 @@ namespace arf
         tv.val = std::move(new_arr);
         
         // Update contamination
-        if (has_invalid) {
+        if (has_invalid) 
+        {
             tv.contamination = contamination_state::contaminated;
             kn->contamination = contamination_state::contaminated;
             doc_.mark_key_contaminated(key);
-        } else {
+        } 
+        else 
+        {
             tv.contamination = contamination_state::clean;
-            doc_.clear_key_contamination(key);
+            doc_.request_clear_contamination(key);
         }
         
         kn->is_edited = true;
@@ -518,20 +525,25 @@ namespace arf
         
         // Re-evaluate contamination (might clear if removed element was the problem)
         bool has_invalid = false;
-        for (auto& e : arr) {
-            if (e.semantic == semantic_state::invalid) {
+        for (auto& e : arr) 
+        {
+            if (e.semantic == semantic_state::invalid) 
+            {
                 has_invalid = true;
                 break;
             }
         }
         
-        if (has_invalid) {
+        if (has_invalid) 
+        {
             tv.contamination = contamination_state::contaminated;
             kn->contamination = contamination_state::contaminated;
             doc_.mark_key_contaminated(key);
-        } else {
+        } 
+        else 
+        {
             tv.contamination = contamination_state::clean;
-            doc_.clear_key_contamination(key);
+            doc_.request_clear_contamination(key);
         }
         
         kn->is_edited = true;
@@ -809,13 +821,13 @@ namespace arf
             {
                 // Valid → try to clear
                 tv.semantic = semantic_state::valid;
-                doc_.clear_key_contamination(key);
+                doc_.request_clear_contamination(key);
             }
         }
         else
         {
             tv.semantic = semantic_state::valid;
-            doc_.clear_key_contamination(key);
+            doc_.request_clear_contamination(key);
         }
         
         kn->is_edited = true;
