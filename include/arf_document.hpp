@@ -163,6 +163,18 @@ namespace arf
         }
 
     //------------------------------------------------------------------------
+    // ID creation (monotonic guarantee)
+    //------------------------------------------------------------------------
+
+        category_id   create_category_id()   noexcept  { return next_category_id_++; }
+        key_id        create_key_id()        noexcept  { return next_key_id_++; }
+        comment_id    create_comment_id()    noexcept  { return next_comment_id_++; }
+        paragraph_id  create_paragraph_id()  noexcept  { return next_paragraph_id_++; }
+        table_id      create_table_id()      noexcept  { return next_table_id_++; }
+        table_row_id  create_row_id()        noexcept  { return next_row_id_++; }
+        column_id     create_column_id()     noexcept  { return next_column_id_++; }
+
+    //------------------------------------------------------------------------
     // Definitions for internal storage nodes (fully normalised)
     //------------------------------------------------------------------------
 
@@ -280,6 +292,14 @@ namespace arf
         };    
         
     private:
+
+        category_id   next_category_id_   = category_id {0};
+        key_id        next_key_id_        = key_id {0};
+        comment_id    next_comment_id_    = comment_id {0};
+        paragraph_id  next_paragraph_id_  = paragraph_id {0};
+        table_id      next_table_id_      = table_id {0};
+        table_row_id  next_row_id_        = table_row_id {0};
+        column_id     next_column_id_     = column_id {0};
 
         template<typename T> struct to_node_type;
         template<> struct to_node_type<category_tag>     { typedef category_node type; };

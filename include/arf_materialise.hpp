@@ -667,6 +667,14 @@ namespace
             if (row.contamination == contamination_state::contaminated)
                 doc_.mark_row_contaminated(row.id);
 
+        doc_.next_category_id_  = doc_.categories_.size();
+        doc_.next_column_id_    = doc_.columns_.size();
+        doc_.next_comment_id_   = doc_.comments_.size();
+        doc_.next_key_id_       = doc_.keys_.size();
+        doc_.next_paragraph_id_ = doc_.paragraphs_.size();
+        doc_.next_row_id_       = doc_.rows_.size();
+        doc_.next_table_id_     = doc_.tables_.size();
+
         return std::move(out_);
     }
 

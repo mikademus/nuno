@@ -36,11 +36,13 @@ namespace arf
     template <typename Tag>
     struct id
     {
-        size_t val;
+        typedef size_t value_type;
 
-        explicit id(size_t v = npos()) : val(v) {}
+        value_type val;
+
+        explicit id(value_type v = npos()) : val(v) {}
         operator size_t() const { return val; }
-        id & operator= (size_t v) { val = v; return *this; }        
+        id & operator= (value_type v) { val = v; return *this; }        
         auto operator<=>(id const &) const = default;
         id & operator++() { ++val; return *this; }
         id operator++(int) { id temp = *this; ++val; return temp; }
@@ -174,7 +176,7 @@ namespace arf
         return {};
     }
 
-    value_type typed_value::held_type() const noexcept
+    value_type held_type(value const &val) noexcept
     {
         if (std::holds_alternative<std::string>(val)) return value_type::string;
         if (std::holds_alternative<int64_t>(val)) return value_type::integer;
@@ -184,7 +186,7 @@ namespace arf
         {
             auto const & vec = std::get<std::vector<typed_value>>(val);
             if (!vec.empty())
-                switch (vec.front().held_type())
+                switch (arf::held_type(vec.front().val))
                 {
                    case value_type::string: return value_type::string_array;
                    case value_type::integer: return value_type::int_array;
@@ -196,7 +198,8 @@ namespace arf
         return value_type::unresolved;
     }
 
-        
+    value_type typed_value::held_type() const noexcept { return arf::held_type(val); }
+
     inline bool is_valid(const typed_value &value)     { return value.semantic == semantic_state::valid; }
     inline bool is_clean(const typed_value &value)     { return value.contamination == contamination_state::clean; }
     inline bool is_authored(const typed_value &value)  { return value.creation == creation_state::authored; }
@@ -281,7 +284,7 @@ namespace arf
 //========================================================================
 // UTILITY FUNCTIONS
 //========================================================================
-    
+
     namespace detail 
     {
         constexpr size_t MAX_LINES = 1'000'000;
