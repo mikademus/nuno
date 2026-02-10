@@ -375,7 +375,7 @@ namespace
             std::string_view part = literal.substr(pos, len);
 
             typed_value elem;
-            elem.origin = origin;
+            elem.origin = value_locus::array_element;
 
             // Empty element: preserved, missing but not invalid
             if (part.empty())
@@ -456,7 +456,7 @@ namespace
         if (!literal.empty() && literal.back() == '|')
         {
             typed_value elem;
-            elem.origin        = origin;
+            elem.origin        = value_locus::array_element;
             elem.type          = value_type::unresolved;
             elem.val           = std::monostate{};
             elem.type_source   = type_ascription::tacit;
@@ -667,13 +667,13 @@ namespace
             if (row.contamination == contamination_state::contaminated)
                 doc_.mark_row_contaminated(row.id);
 
-        doc_.next_category_id_  = doc_.categories_.size();
-        doc_.next_column_id_    = doc_.columns_.size();
-        doc_.next_comment_id_   = doc_.comments_.size();
-        doc_.next_key_id_       = doc_.keys_.size();
-        doc_.next_paragraph_id_ = doc_.paragraphs_.size();
-        doc_.next_row_id_       = doc_.rows_.size();
-        doc_.next_table_id_     = doc_.tables_.size();
+        if (!doc_.categories_.empty())  doc_.next_category_id_  = doc_.categories_.back().id + 1;
+        if (!doc_.columns_.empty())     doc_.next_column_id_    = doc_.columns_.back()._id() + 1;
+        if (!doc_.comments_.empty())    doc_.next_comment_id_   = doc_.comments_.back().id + 1;
+        if (!doc_.keys_.empty())        doc_.next_key_id_       = doc_.keys_.back().id + 1;
+        if (!doc_.paragraphs_.empty())  doc_.next_paragraph_id_ = doc_.paragraphs_.back().id + 1;
+        if (!doc_.rows_.empty())        doc_.next_row_id_       = doc_.rows_.back().id + 1;
+        if (!doc_.tables_.empty())      doc_.next_table_id_     = doc_.tables_.back().id + 1;
 
         return std::move(out_);
     }

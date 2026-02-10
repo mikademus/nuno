@@ -277,15 +277,9 @@ namespace arf
 
         document& doc_;
 
-        //========================================================
-        // Internal helpers — NEVER exposed
-        //========================================================
-
-        document::source_item_ref make_ref(key_id id)        noexcept;
-        document::source_item_ref make_ref(comment_id id)    noexcept;
-        document::source_item_ref make_ref(paragraph_id id)  noexcept;
-        document::source_item_ref make_ref(table_id id)      noexcept;
-        document::source_item_ref make_ref(table_row_id id)  noexcept;
+    //========================================================
+    // Internal helpers — NEVER exposed
+    //========================================================
 
         template<typename Tag>
         document::source_item_ref const* locate_anchor(id<Tag> anchor) const noexcept;
@@ -349,7 +343,8 @@ namespace arf
         
         // Validate against expected array element type
         value_type expected_elem_type;
-        switch (expected_type) {
+        switch (expected_type) 
+        {
             case value_type::int_array:    expected_elem_type = value_type::integer; break;
             case value_type::float_array:  expected_elem_type = value_type::decimal; break;
             case value_type::string_array: expected_elem_type = value_type::string; break;
@@ -362,11 +357,14 @@ namespace arf
         }
         
         // Check type match
-        if (elem.type == expected_elem_type) {
+        if (elem.type == expected_elem_type) 
+        {
             elem.type_source = type_ascription::declared;
             elem.semantic = semantic_state::valid;
             elem.contamination = contamination_state::clean;
-        } else {
+        } 
+        else 
+        {
             // Type mismatch → invalid element
             elem.type_source = type_ascription::tacit;
             elem.semantic = semantic_state::invalid;
@@ -612,6 +610,138 @@ namespace arf
             doc_.get_node(anchor)->owner);
 
         key_id id = append_key(where, name, std::move(v), untyped);
+
+        auto* cat = doc_.get_node(where);
+        auto it = std::ranges::find(cat->ordered_items, *ref);
+
+        if (it != cat->ordered_items.end()) ++it;
+        cat->ordered_items.insert(it, {id});
+
+        return id;
+    }
+
+    inline key_id editor::append_key(
+        category_id where,
+        std::string_view name,
+        std::vector<value> arr,
+        bool untyped)
+    {
+        auto* cat = doc_.get_node(where);
+        if (!cat)
+            return invalid_id<key_tag>();
+
+        key_id id = doc_.create_key_id();
+
+        document::key_node kn;
+        kn.id    = id;
+        kn.name  = std::string(name);
+        kn.owner = where;
+
+        // Infer array type from first element if untyped
+        value_type array_type = value_type::unresolved;
+        value_type elem_type = value_type::unresolved;
+        
+        if (!untyped && !arr.empty())
+        {
+            elem_type = held_type(arr[0]);
+            
+            // Map element type to array type
+            switch (elem_type)
+            {
+                case value_type::string:  array_type = value_type::string_array; break;
+                case value_type::integer: array_type = value_type::int_array;    break;
+                case value_type::decimal: array_type = value_type::float_array;  break;
+                default:                  array_type = value_type::unresolved;   break;
+            }
+        }
+        
+        kn.type        = array_type;
+        kn.type_source = untyped ? type_ascription::tacit
+                                 : type_ascription::declared;
+
+        // Build typed array
+        std::vector<typed_value> typed_arr;
+        typed_arr.reserve(arr.size());
+        
+        bool has_invalid = false;
+        
+        for (auto& v : arr)
+        {
+            typed_value elem = make_array_element(
+                std::move(v),
+                array_type,
+                value_locus::array_element
+            );
+            
+            if (elem.semantic == semantic_state::invalid)
+                has_invalid = true;
+            
+            typed_arr.push_back(std::move(elem));
+        }
+
+        // Set up key value
+        kn.value.val           = std::move(typed_arr);
+        kn.value.type          = array_type;
+        kn.value.type_source   = kn.type_source;
+        kn.value.origin        = value_locus::key_value;
+        kn.value.semantic      = semantic_state::valid;
+        kn.value.creation      = creation_state::generated;
+        kn.value.contamination = has_invalid 
+            ? contamination_state::contaminated 
+            : contamination_state::clean;
+        
+        // Mark key contamination if array has invalid elements
+        if (has_invalid)
+        {
+            kn.contamination = contamination_state::contaminated;
+            doc_.mark_key_contaminated(id);
+        }
+
+        doc_.keys_.push_back(std::move(kn));
+        cat->keys.push_back(id);
+        cat->ordered_items.push_back(document::source_item_ref{id});
+
+        return id;
+    }
+
+    template<typename K>
+    inline key_id editor::insert_key_before(
+        id<K> anchor,
+        std::string_view name,
+        std::vector<value> arr,
+        bool untyped)
+    {
+        auto* ref = locate_anchor(anchor);
+        if (!ref)
+            return invalid_id<key_tag>();
+
+        auto where = std::get<category_id>(
+            doc_.get_node(anchor)->owner);
+
+        key_id id = append_key(where, name, std::move(arr), untyped);
+
+        auto* cat = doc_.get_node(where);
+        auto it = std::ranges::find(cat->ordered_items, *ref);
+        cat->ordered_items.insert(it, {id});
+
+        return id;
+    }
+
+    template<typename K>
+    inline key_id editor::insert_key_after(
+        id<K> anchor,
+        std::string_view name,
+        std::vector<value> arr,
+        bool untyped)
+    {
+        auto* ref = locate_anchor(anchor);
+        if (!ref)
+            return invalid_id<key_tag>();
+
+        auto where = std::get<category_id>(
+            doc_.get_node(anchor)->owner);
+
+        key_id id = append_key(where, name, std::move(arr), untyped);
 
         auto* cat = doc_.get_node(where);
         auto it = std::ranges::find(cat->ordered_items, *ref);

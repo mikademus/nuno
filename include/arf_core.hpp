@@ -125,9 +125,10 @@ namespace arf
 
     enum class value_locus
     {
-        key_value,  // declared via key = value
-        table_cell, // declared inside a table row
-        predicate,  // created as the comparator in a query predicate
+        key_value,      // declared via key = value
+        table_cell,     // declared inside a table row
+        array_element,  // declares as an element in an array
+        predicate,      // created as the comparator in a query predicate
     };
 
     enum class creation_state
