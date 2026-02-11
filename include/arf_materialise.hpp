@@ -1118,19 +1118,40 @@ namespace
 
     inline void materialiser::handle_comment(const parse_event& ev, size_t parse_idx)
     {
-        auto cid = doc_.create_comment(ev.text);
+        comment_id cid = doc_.create_comment_id();
+        
+        document::comment_node cn;
+        cn.id       = cid;
+        cn.text     = ev.text;
+        cn.owner    = stack_.back();
+        cn.creation = creation_state::authored;
+        cn.source_event_index = parse_idx;
+        
+        doc_.comments_.push_back(std::move(cn));
         
         if (opts_.echo_lines)
             DBG_EMIT << "Created comment_id{" << cid.val << "} with text: \"" << ev.text << "\"\n";
-                
+        
         insert_source_item(cid);
-        doc_.comments_.back().source_event_index = parse_idx;
     }
 
     void materialiser::handle_paragraph(const parse_event& ev, size_t parse_idx)
     {
-        insert_source_item(doc_.create_paragraph(ev.text));
-        doc_.paragraphs_.back().source_event_index = parse_idx;
+        paragraph_id pid = doc_.create_paragraph_id();
+        
+        document::paragraph_node pn;
+        pn.id       = pid;
+        pn.text     = ev.text;
+        pn.owner    = stack_.back();
+        pn.creation = creation_state::authored;
+        pn.source_event_index = parse_idx;
+        
+        doc_.paragraphs_.push_back(std::move(pn));
+        
+        if (opts_.echo_lines)
+            DBG_EMIT << "Created paragraph_id{" << pid.val << "} with text: \"" << ev.text << "\"\n";
+        
+        insert_source_item(pid);
     }
 
     inline bool materialiser::row_is_valid(document::row_node const& r)
