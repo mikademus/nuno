@@ -43,25 +43,25 @@ namespace arf
     // Comments
     //============================================================
 
-        /* IMPLEMENT */ bool erase_comment(comment_id id);
+        bool erase_comment(comment_id id);
 
-        /* IMPLEMENT */ comment_id append_comment( category_id where, std::string_view text );
-        /* IMPLEMENT */ void set_comment( comment_id id, std::string_view text );
+        comment_id append_comment( category_id where, std::string_view text );
+        void set_comment( comment_id id, std::string_view text );
 
-        /* IMPLEMENT */ template<typename K> comment_id insert_comment_before( id<K> anchor, std::string_view text );
-        /* IMPLEMENT */ template<typename K> comment_id insert_comment_after( id<K> anchor, std::string_view text );
+        template<typename K> comment_id insert_comment_before( id<K> anchor, std::string_view text );
+        template<typename K> comment_id insert_comment_after( id<K> anchor, std::string_view text );
 
     //============================================================
     // Paragraphs (category scope only)
     //============================================================
 
-        /* IMPLEMENT */ bool erase_paragraph(paragraph_id id);
+        bool erase_paragraph(paragraph_id id);
 
-        /* IMPLEMENT */ paragraph_id append_paragraph( category_id where, std::string_view text );
-        /* IMPLEMENT */ void set_paragraph( paragraph_id id, std::string_view text );
+        paragraph_id append_paragraph( category_id where, std::string_view text );
+        void set_paragraph( paragraph_id id, std::string_view text );
 
-        /* IMPLEMENT */ template<typename K> paragraph_id insert_paragraph_before( id<K> anchor, std::string_view text );
-        /* IMPLEMENT */ template<typename K> paragraph_id insert_paragraph_after( id<K> anchor, std::string_view text );
+        template<typename K> paragraph_id insert_paragraph_before( id<K> anchor, std::string_view text );
+        template<typename K> paragraph_id insert_paragraph_after( id<K> anchor, std::string_view text );
 
     //============================================================
     // Tables
@@ -1423,14 +1423,245 @@ namespace arf
         return tid;
     }
 
- 
 //============================================================
 // Comments
 //============================================================
 
+    inline comment_id editor::append_comment(
+        category_id where,
+        std::string_view text)
+    {
+        auto* cat = doc_.get_node(where);
+        if (!cat) return invalid_id<comment_tag>();
+
+        comment_id id = doc_.create_comment_id();
+
+        document::comment_node cn;
+        cn.id       = id;
+        cn.text     = std::string(text);
+        cn.owner    = where;
+        cn.creation = creation_state::generated;
+
+        doc_.comments_.push_back(std::move(cn));
+        cat->ordered_items.push_back({id});
+
+        return id;
+    }
+
+    inline void editor::set_comment(comment_id id, std::string_view text)
+    {
+        auto* cn = doc_.get_node(id);
+        if (!cn) return;
+
+        cn->text = std::string(text);
+        cn->creation = creation_state::generated;
+        cn->is_edited = true;
+    }
+
+    inline bool editor::erase_comment(comment_id id)
+    {
+        auto* cn = doc_.get_node(id);
+        if (!cn) return false;
+
+        auto* cat = doc_.get_node(cn->owner);
+        if (!cat) return false;
+
+        // Remove from ordered_items
+        std::erase_if(cat->ordered_items, [&](auto const& r)
+        {
+            return std::holds_alternative<comment_id>(r.id)
+                && std::get<comment_id>(r.id) == id;
+        });
+
+        // Remove from storage
+        auto& comments = doc_.comments_;
+        comments.erase(
+            std::ranges::find_if(comments, [&](auto const& c) {
+                return c.id == id;
+            })
+        );
+
+        return true;
+    }
+
+    template<typename K>
+    comment_id editor::insert_comment_before(
+        id<K> anchor,
+        std::string_view text)
+    {
+        auto* ref = locate_anchor(anchor);
+        if (!ref) return invalid_id<comment_tag>();
+
+        auto* anchor_node = doc_.get_node(anchor);
+        if (!anchor_node) return invalid_id<comment_tag>();
+
+        category_id where = anchor_node->owner;
+
+        comment_id id = append_comment(where, text);
+
+        auto* cat = doc_.get_node(where);
+        auto it = std::ranges::find(cat->ordered_items, *ref);
+
+        if (it != cat->ordered_items.end())
+        {
+            // Remove the auto-appended entry
+            std::erase(cat->ordered_items, document::source_item_ref{id});
+            // Insert at correct position
+            cat->ordered_items.insert(it, {id});
+        }
+
+        return id;
+    }
+
+    template<typename K>
+    comment_id editor::insert_comment_after(
+        id<K> anchor,
+        std::string_view text)
+    {
+        auto* ref = locate_anchor(anchor);
+        if (!ref) return invalid_id<comment_tag>();
+
+        auto* anchor_node = doc_.get_node(anchor);
+        if (!anchor_node) return invalid_id<comment_tag>();
+
+        category_id where = anchor_node->owner;
+
+        comment_id id = append_comment(where, text);
+
+        auto* cat = doc_.get_node(where);
+        auto it = std::ranges::find(cat->ordered_items, *ref);
+
+        if (it != cat->ordered_items.end())
+        {
+            ++it;
+            // Remove the auto-appended entry
+            std::erase(cat->ordered_items, document::source_item_ref{id});
+            // Insert at correct position
+            cat->ordered_items.insert(it, {id});
+        }
+
+        return id;
+    }
+
 //============================================================
 // Paragraphs (category scope only)
 //============================================================
+
+    inline paragraph_id editor::append_paragraph(
+        category_id where,
+        std::string_view text)
+    {
+        auto* cat = doc_.get_node(where);
+        if (!cat) return invalid_id<paragraph_tag>();
+
+        paragraph_id id = doc_.create_paragraph_id();
+
+        document::paragraph_node pn;
+        pn.id       = id;
+        pn.text     = std::string(text);
+        pn.owner    = where;
+        pn.creation = creation_state::generated;
+
+        doc_.paragraphs_.push_back(std::move(pn));
+        cat->ordered_items.push_back({id});
+
+        return id;
+    }
+
+    inline void editor::set_paragraph(paragraph_id id, std::string_view text)
+    {
+        auto* pn = doc_.get_node(id);
+        if (!pn) return;
+
+        pn->text = std::string(text);
+        pn->creation = creation_state::generated;
+        pn->is_edited = true;
+    }
+
+    inline bool editor::erase_paragraph(paragraph_id id)
+    {
+        auto* pn = doc_.get_node(id);
+        if (!pn) return false;
+
+        auto* cat = doc_.get_node(pn->owner);
+        if (!cat) return false;
+
+        // Remove from ordered_items
+        std::erase_if(cat->ordered_items, [&](auto const& r)
+        {
+            return std::holds_alternative<paragraph_id>(r.id)
+                && std::get<paragraph_id>(r.id) == id;
+        });
+
+        // Remove from storage
+        auto& paragraphs = doc_.paragraphs_;
+        paragraphs.erase(
+            std::ranges::find_if(paragraphs, [&](auto const& p) {
+                return p.id == id;
+            })
+        );
+
+        return true;
+    }
+
+    template<typename K>
+    paragraph_id editor::insert_paragraph_before(
+        id<K> anchor,
+        std::string_view text)
+    {
+        auto* ref = locate_anchor(anchor);
+        if (!ref) return invalid_id<paragraph_tag>();
+
+        auto* anchor_node = doc_.get_node(anchor);
+        if (!anchor_node) return invalid_id<paragraph_tag>();
+
+        category_id where = anchor_node->owner;
+
+        paragraph_id id = append_paragraph(where, text);
+
+        auto* cat = doc_.get_node(where);
+        auto it = std::ranges::find(cat->ordered_items, *ref);
+
+        if (it != cat->ordered_items.end())
+        {
+            // Remove the auto-appended entry
+            std::erase(cat->ordered_items, document::source_item_ref{id});
+            // Insert at correct position
+            cat->ordered_items.insert(it, {id});
+        }
+
+        return id;
+    }
+
+    template<typename K>
+    paragraph_id editor::insert_paragraph_after(
+        id<K> anchor,
+        std::string_view text)
+    {
+        auto* ref = locate_anchor(anchor);
+        if (!ref) return invalid_id<paragraph_tag>();
+
+        auto* anchor_node = doc_.get_node(anchor);
+        if (!anchor_node) return invalid_id<paragraph_tag>();
+
+        category_id where = anchor_node->owner;
+
+        paragraph_id id = append_paragraph(where, text);
+
+        auto* cat = doc_.get_node(where);
+        auto it = std::ranges::find(cat->ordered_items, *ref);
+
+        if (it != cat->ordered_items.end())
+        {
+            ++it;
+            // Remove the auto-appended entry
+            std::erase(cat->ordered_items, document::source_item_ref{id});
+            // Insert at correct position
+            cat->ordered_items.insert(it, {id});
+        }
+
+        return id;
+    }
 
 }
 

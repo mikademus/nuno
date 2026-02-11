@@ -296,14 +296,22 @@ namespace arf
 
         struct comment_node : node<>
         {
+            typedef comment_id id_type;
+            id_type _id() const noexcept { return id; }
+
             comment_id  id;
             std::string text;   // verbatim, may be multi-line, includes "//" and preserves leading whitespace and line breaks
+            category_id owner {invalid_id<category_tag>()};
         };
 
         struct paragraph_node : node<>
         {
+            typedef paragraph_id id_type;
+            id_type _id() const noexcept { return id; }
+
             paragraph_id id;
             std::string  text;  // verbatim, may be multi-line, preserves leading whitespace and line breaks
+            category_id  owner {invalid_id<category_tag>()} ;
         };    
         
     private:
