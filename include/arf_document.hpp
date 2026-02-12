@@ -186,10 +186,10 @@ namespace arf
 
         struct category_close_marker
         {
-            category_id         id;
+            category_id         which;
             category_close_form form;
 
-            bool operator==(category_close_marker const & rhs) const noexcept { return id == rhs.id; }
+            bool operator==(category_close_marker const & rhs) const noexcept { return which == rhs.which; }
         };
 
         using source_id = std::variant<

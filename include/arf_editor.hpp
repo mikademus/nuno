@@ -1062,6 +1062,10 @@ namespace arf
 
         bool key_invalid = structural_invalid || has_invalid_element;
 
+        tv.semantic = key_invalid 
+            ? semantic_state::invalid 
+            : semantic_state::valid;
+
         if (key_invalid)
         {
             kn->semantic      = semantic_state::invalid;
