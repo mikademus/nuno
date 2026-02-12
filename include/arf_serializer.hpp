@@ -125,7 +125,7 @@ namespace arf
         void write_item(const document::category_close_marker& marker)
         {
             if (opts_.echo_lines)
-                DBG_EMIT << "serializer::write_item(category_close_id), ID = " << marker.which << std::endl;
+                DBG_EMIT << "serializer::write_item(category_close_id), ID = " << marker.id << std::endl;
 
             write_category_close(marker);
         }
@@ -303,7 +303,7 @@ namespace arf
 
             --indent_;
 
-            auto it = doc_.find_node_by_id(doc_.categories_, marker.which);
+            auto it = doc_.find_node_by_id(doc_.categories_, marker.id);
             assert(it != doc_.categories_.end());
             const auto& cat = *it;
 

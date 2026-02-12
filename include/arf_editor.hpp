@@ -67,6 +67,8 @@ namespace arf
     // Tables
     //============================================================
 
+    // Tables themselves
+    //----------------------------
         bool erase_table(table_id id);
 
         table_id append_table( category_id where, std::vector<std::string> column_names );
@@ -78,10 +80,24 @@ namespace arf
         template<typename Tag> table_id insert_table_after( id<Tag> anchor, std::vector<std::string> column_names );
         template<typename Tag> table_id insert_table_after( id<Tag> anchor, std::vector<std::pair<std::string, std::optional<value_type>>> columns );
 
+    // Rows
+    //----------------------------        
         bool erase_row(table_row_id id);
 
         table_row_id append_row( table_id table, std::vector<value> cells );
 
+        template<typename Tag> table_row_id insert_row_before(id<Tag> anchor, std::vector<value> cells);
+        template<typename Tag> table_row_id insert_row_after(id<Tag> anchor, std::vector<value> cells);
+
+    // Columns
+    //----------------------------        
+        column_id append_column( table_id table_id, std::string_view name, std::optional<value_type> declared_type );
+
+        column_id insert_column_before( column_id anchor, std::string_view name, std::optional<value_type> declared_type );
+        column_id insert_column_after( column_id anchor, std::string_view name, std::optional<value_type> declared_type );
+
+    // Cells
+    //----------------------------        
         void set_cell_value( table_row_id row, column_id col, value val );
         void set_cell_value( table_row_id row, column_id col, std::vector<value> arr );
 
@@ -161,6 +177,18 @@ namespace arf
             std::string_view name,
             value v,
             bool untyped
+        );
+
+        //table_id create_table_node_only(category_id owner);
+
+        column_id create_column_node_only( 
+            table_id table, 
+            std::string_view name, 
+            std::optional<value_type> declared_type );
+
+        table_row_id create_row_node_only(
+            table_id table,
+            std::vector<typed_value> cells
         );
     };
 
@@ -286,9 +314,11 @@ namespace arf
         key_id id = doc_.create_key_id();
 
         document::key_node kn;
-        kn.id    = id;
-        kn.name  = std::string(name);
-        kn.owner = where;
+        kn.id        = id;
+        kn.name      = std::string(name);
+        kn.owner     = where;
+        kn.creation  = creation_state::generated;
+        kn.is_edited = true;
 
         kn.type        = untyped ? value_type::unresolved : held_type(v);
         kn.type_source = untyped ? type_ascription::tacit
@@ -304,6 +334,93 @@ namespace arf
 
         doc_.keys_.push_back(std::move(kn));
         cat->keys.push_back(id);
+
+        return id;
+    }
+
+/*    
+    inline table_id editor::create_table_node_only(category_id owner)
+    {
+        table_id id = doc_.create_table_id();
+
+        document::table_node tbl;
+        tbl.id            = id;
+        tbl.owner         = owner;
+        tbl.creation      = creation_state::generated;
+        tbl.is_edited     = true;
+        tbl.semantic      = semantic_state::valid;
+        tbl.contamination = contamination_state::clean;
+
+        doc_.tables_.push_back(std::move(tbl));
+
+        return id;
+    }
+*/
+
+    inline column_id editor::create_column_node_only(
+        table_id table,
+        std::string_view name, 
+        std::optional<value_type> declared_type
+    )
+    {
+        column_id id = doc_.create_column_id();
+
+        document::column_node col;
+        col.col.id        = id;
+        col.col.name      = name;
+        col.table         = table;
+        col.creation      = creation_state::generated;
+        col.is_edited     = true;
+        col.col.semantic      = semantic_state::valid;
+        //col.contamination = contamination_state::clean;
+
+        col.col.type = declared_type.has_value()
+             ? *declared_type
+             : value_type::unresolved;
+
+        doc_.columns_.push_back(std::move(col));
+
+        return id;
+    }
+
+    inline table_row_id editor::create_row_node_only(
+        table_id table,
+        std::vector<typed_value> cells
+    )
+    {
+        table_row_id id = doc_.create_row_id();
+
+        document::row_node row;
+        row.id    = id;
+        row.table = table;
+        row.cells = std::move(cells);
+
+        row.creation  = creation_state::generated;
+        row.is_edited = true;
+
+        // Initial semantic state:
+        bool has_invalid = false;
+        for (auto const& cell : row.cells)
+        {
+            if (cell.semantic == semantic_state::invalid ||
+                cell.contamination == contamination_state::contaminated)
+            {
+                has_invalid = true;
+                break;
+            }
+        }
+
+        row.semantic =
+            has_invalid
+                ? semantic_state::invalid
+                : semantic_state::valid;
+
+        row.contamination =
+            has_invalid
+                ? contamination_state::contaminated
+                : contamination_state::clean;
+
+        doc_.rows_.push_back(std::move(row));
 
         return id;
     }
@@ -1123,6 +1240,166 @@ namespace arf
         tbl->ordered_items.push_back({id});
 
         return id;
+    }
+
+    template<typename Tag>
+    table_row_id editor::insert_row_before(
+        id<Tag> anchor,
+        std::vector<value> cells)
+    {
+        // Anchor must be a row
+        if constexpr (!std::is_same_v<Tag, table_row_tag>)
+            return invalid_id<table_row_tag>();
+
+        auto* anchor_node = doc_.get_node(anchor);
+        if (!anchor_node)
+            return invalid_id<table_row_tag>();
+
+        table_id table = anchor_node->table;
+        auto* tbl = doc_.get_node(table);
+        if (!tbl)
+            return invalid_id<table_row_tag>();
+
+        // Create row using existing logic
+        table_row_id new_id = append_row(table, std::move(cells));
+        if (!valid(new_id))
+            return new_id;
+
+        // Remove auto-appended entry from ordered_items and rows
+        std::erase(tbl->rows, new_id);
+
+        std::erase_if(tbl->ordered_items, [&](auto const& r)
+        {
+            return std::holds_alternative<table_row_id>(r.id)
+                && std::get<table_row_id>(r.id) == new_id;
+        });
+
+        // Find anchor position
+        auto it = std::ranges::find_if(
+            tbl->ordered_items,
+            [&](auto const& r)
+            {
+                return std::holds_alternative<table_row_id>(r.id)
+                    && std::get<table_row_id>(r.id) == anchor;
+            });
+
+        // Insert in semantic rows
+        auto row_it = std::ranges::find(tbl->rows, anchor);
+        tbl->rows.insert(row_it, new_id);
+
+        // Insert in authored order
+        tbl->ordered_items.insert(it, {new_id});
+
+        return new_id;
+    }
+
+    template<typename Tag>
+    table_row_id editor::insert_row_after(
+        id<Tag> anchor,
+        std::vector<value> cells)
+    {
+        if constexpr (!std::is_same_v<Tag, table_row_tag>)
+            return invalid_id<table_row_tag>();
+
+        auto* anchor_node = doc_.get_node(anchor);
+        if (!anchor_node)
+            return invalid_id<table_row_tag>();
+
+        table_id table = anchor_node->table;
+        auto* tbl = doc_.get_node(table);
+        if (!tbl)
+            return invalid_id<table_row_tag>();
+
+        table_row_id new_id = append_row(table, std::move(cells));
+        if (!valid(new_id))
+            return new_id;
+
+        std::erase(tbl->rows, new_id);
+
+        std::erase_if(tbl->ordered_items, [&](auto const& r)
+        {
+            return std::holds_alternative<table_row_id>(r.id)
+                && std::get<table_row_id>(r.id) == new_id;
+        });
+
+        auto it = std::ranges::find_if(
+            tbl->ordered_items,
+            [&](auto const& r)
+            {
+                return std::holds_alternative<table_row_id>(r.id)
+                    && std::get<table_row_id>(r.id) == anchor;
+            });
+
+        auto row_it = std::ranges::find(tbl->rows, anchor);
+        if (row_it != tbl->rows.end()) ++row_it;
+        tbl->rows.insert(row_it, new_id);
+
+        if (it != tbl->ordered_items.end()) ++it;
+        tbl->ordered_items.insert(it, {new_id});
+
+        return new_id;
+    }
+    
+    inline column_id editor::append_column(
+        table_id table_id,
+        std::string_view name, 
+        std::optional<value_type> declared_type
+    )
+    {
+        auto* tbl = doc_.get_node(table_id);
+        if (!tbl) return invalid_id<table_column_tag>();
+
+        column_id cid = create_column_node_only(table_id, name, declared_type);
+
+        tbl->columns.push_back(cid);
+
+        tbl->ordered_items.push_back(
+            document::source_item_ref{ document::category_close_marker{tbl->owner} }
+        );
+
+        return cid;
+    }
+
+
+    column_id editor::insert_column_before( 
+        column_id anchor, 
+        std::string_view name, 
+        std::optional<value_type> declared_type )
+    {
+        auto* anchor_node = doc_.get_node(anchor);
+        if (!anchor_node) return invalid_id<table_column_tag>();
+
+        table_id owner = anchor_node->table;
+        auto* tbl = doc_.get_node(owner);
+        if (!tbl) return invalid_id<table_column_tag>();
+
+        column_id cid = create_column_node_only(owner, name, declared_type);
+
+        auto it = std::ranges::find(tbl->columns, anchor);
+        tbl->columns.insert(it, cid);
+
+        return cid;
+    }
+
+    column_id editor::insert_column_after( 
+        column_id anchor, 
+        std::string_view name, 
+        std::optional<value_type> declared_type )
+    {
+        auto* anchor_node = doc_.get_node(anchor);
+        if (!anchor_node) return invalid_id<table_column_tag>();
+
+        table_id owner = anchor_node->table;
+        auto* tbl = doc_.get_node(owner);
+        if (!tbl) return invalid_id<table_column_tag>();
+
+        column_id cid = create_column_node_only(owner, name, declared_type);
+
+        auto it = std::ranges::find(tbl->columns, anchor);
+        if (it != tbl->columns.end()) ++it;
+        tbl->columns.insert(it, cid);
+
+        return cid;
     }
 
     void editor::set_cell_value(
