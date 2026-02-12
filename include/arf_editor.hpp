@@ -155,6 +155,8 @@ namespace arf
     // Internal helpers; not exposed for clients
     //========================================================
 
+        enum class insert_direction { before, after };
+
         template<typename Tag>
         document::source_item_ref const* locate_anchor(id<Tag> anchor) const noexcept;
 
@@ -172,7 +174,30 @@ namespace arf
             std::function<void()> mark_contaminated,
             std::function<void()> try_clear
         );        
-        
+
+        template<typename Tag>
+        table_row_id insert_row_impl(
+            id<Tag> anchor,
+            std::vector<value> cells,
+            insert_direction dir);
+
+        template<typename EntityId, typename Tag, typename... AppendArgs>
+        EntityId insert_category_child_before(
+            id<Tag> anchor,
+            EntityId (editor::*append_fn)(category_id, AppendArgs...),
+            AppendArgs&&... args);
+
+        template<typename EntityId, typename Tag, typename... AppendArgs>
+        EntityId insert_category_child_after(
+            id<Tag> anchor,
+            EntityId (editor::*append_fn)(category_id, AppendArgs...),
+            AppendArgs&&... args);
+
+        template<typename EntityId, typename NodeType>
+        bool erase_category_child(
+            EntityId id,
+            std::vector<NodeType>& storage);
+
         // Helper to create keys without adding to document's ordered_list
         key_id create_key_node_only(
             category_id where,
@@ -180,8 +205,6 @@ namespace arf
             value v,
             bool untyped
         );
-
-        //table_id create_table_node_only(category_id owner);
 
         column_id create_column_node_only( 
             table_id table, 
@@ -301,6 +324,90 @@ namespace arf
             target_array.contamination = contamination_state::clean;
             try_clear();
         }
+    }
+
+    template<typename EntityId, typename Tag, typename... AppendArgs>
+    EntityId editor::insert_category_child_before(
+        id<Tag> anchor,
+        EntityId (editor::*append_fn)(category_id, AppendArgs...),
+        AppendArgs&&... args)
+    {
+        auto* ref = locate_anchor(anchor);
+        if (!ref) return invalid_id<typename EntityId::tag_type>();
+
+        auto* anchor_node = doc_.get_node(anchor);
+        if (!anchor_node) return invalid_id<typename EntityId::tag_type>();
+
+        category_id where = anchor_node->owner;
+
+        EntityId id = (this->*append_fn)(where, std::forward<AppendArgs>(args)...);
+        if (!valid(id)) return id;
+
+        auto* cat = doc_.get_node(where);
+        auto it = std::ranges::find(cat->ordered_items, *ref);
+
+        if (it != cat->ordered_items.end())
+        {
+            std::erase(cat->ordered_items, document::source_item_ref{id});
+            cat->ordered_items.insert(it, {id});
+        }
+
+        return id;
+    }
+
+    template<typename EntityId, typename Tag, typename... AppendArgs>
+    EntityId editor::insert_category_child_after(
+        id<Tag> anchor,
+        EntityId (editor::*append_fn)(category_id, AppendArgs...),
+        AppendArgs&&... args)
+    {
+        auto* ref = locate_anchor(anchor);
+        if (!ref) return invalid_id<typename EntityId::tag_type>();
+
+        auto* anchor_node = doc_.get_node(anchor);
+        if (!anchor_node) return invalid_id<typename EntityId::tag_type>();
+
+        category_id where = anchor_node->owner;
+
+        EntityId id = (this->*append_fn)(where, std::forward<AppendArgs>(args)...);
+        if (!valid(id)) return id;
+
+        auto* cat = doc_.get_node(where);
+        auto it = std::ranges::find(cat->ordered_items, *ref);
+
+        if (it != cat->ordered_items.end())
+        {
+            ++it;
+            std::erase(cat->ordered_items, document::source_item_ref{id});
+            cat->ordered_items.insert(it, {id});
+        }
+
+        return id;
+    }    
+
+    template<typename EntityId, typename NodeType>
+    bool editor::erase_category_child(
+        EntityId id,
+        std::vector<NodeType>& storage)
+    {
+        auto* node = doc_.get_node(id);
+        if (!node) return false;
+
+        auto* cat = doc_.get_node(node->owner);
+        if (!cat) return false;
+
+        std::erase_if(cat->ordered_items, [&](auto const& r) {
+            return std::holds_alternative<EntityId>(r.id)
+                && std::get<EntityId>(r.id) == id;
+        });
+
+        storage.erase(
+            std::ranges::find_if(storage, [&](auto const& n) {
+                return n.id == id;
+            })
+        );
+
+        return true;
     }
 
     key_id editor::create_key_node_only(
@@ -1245,54 +1352,58 @@ namespace arf
     }
 
     template<typename Tag>
-    table_row_id editor::insert_row_before(
+    table_row_id editor::insert_row_impl(
         id<Tag> anchor,
-        std::vector<value> cells)
+        std::vector<value> cells,
+        insert_direction dir)
     {
-        // Anchor must be a row
         if constexpr (!std::is_same_v<Tag, table_row_tag>)
             return invalid_id<table_row_tag>();
 
         auto* anchor_node = doc_.get_node(anchor);
-        if (!anchor_node)
-            return invalid_id<table_row_tag>();
+        if (!anchor_node) return invalid_id<table_row_tag>();
 
         table_id table = anchor_node->table;
         auto* tbl = doc_.get_node(table);
-        if (!tbl)
-            return invalid_id<table_row_tag>();
+        if (!tbl) return invalid_id<table_row_tag>();
 
-        // Create row using existing logic
         table_row_id new_id = append_row(table, std::move(cells));
-        if (!valid(new_id))
-            return new_id;
+        if (!valid(new_id)) return new_id;
 
-        // Remove auto-appended entry from ordered_items and rows
+        // Remove auto-appended entry
         std::erase(tbl->rows, new_id);
-
-        std::erase_if(tbl->ordered_items, [&](auto const& r)
-        {
+        std::erase_if(tbl->ordered_items, [&](auto const& r) {
             return std::holds_alternative<table_row_id>(r.id)
                 && std::get<table_row_id>(r.id) == new_id;
         });
 
         // Find anchor position
-        auto it = std::ranges::find_if(
-            tbl->ordered_items,
-            [&](auto const& r)
-            {
-                return std::holds_alternative<table_row_id>(r.id)
-                    && std::get<table_row_id>(r.id) == anchor;
-            });
+        auto it = std::ranges::find_if(tbl->ordered_items, [&](auto const& r) {
+            return std::holds_alternative<table_row_id>(r.id)
+                && std::get<table_row_id>(r.id) == anchor;
+        });
 
-        // Insert in semantic rows
         auto row_it = std::ranges::find(tbl->rows, anchor);
-        tbl->rows.insert(row_it, new_id);
 
-        // Insert in authored order
+        // Insert based on direction
+        if (dir == insert_direction::after)
+        {
+            if (row_it != tbl->rows.end()) ++row_it;
+            if (it != tbl->ordered_items.end()) ++it;
+        }
+
+        tbl->rows.insert(row_it, new_id);
         tbl->ordered_items.insert(it, {new_id});
 
         return new_id;
+    }
+
+    template<typename Tag>
+    table_row_id editor::insert_row_before(
+        id<Tag> anchor,
+        std::vector<value> cells)
+    {
+        return insert_row_impl(anchor, std::move(cells), insert_direction::before);
     }
 
     template<typename Tag>
@@ -1300,46 +1411,7 @@ namespace arf
         id<Tag> anchor,
         std::vector<value> cells)
     {
-        if constexpr (!std::is_same_v<Tag, table_row_tag>)
-            return invalid_id<table_row_tag>();
-
-        auto* anchor_node = doc_.get_node(anchor);
-        if (!anchor_node)
-            return invalid_id<table_row_tag>();
-
-        table_id table = anchor_node->table;
-        auto* tbl = doc_.get_node(table);
-        if (!tbl)
-            return invalid_id<table_row_tag>();
-
-        table_row_id new_id = append_row(table, std::move(cells));
-        if (!valid(new_id))
-            return new_id;
-
-        std::erase(tbl->rows, new_id);
-
-        std::erase_if(tbl->ordered_items, [&](auto const& r)
-        {
-            return std::holds_alternative<table_row_id>(r.id)
-                && std::get<table_row_id>(r.id) == new_id;
-        });
-
-        auto it = std::ranges::find_if(
-            tbl->ordered_items,
-            [&](auto const& r)
-            {
-                return std::holds_alternative<table_row_id>(r.id)
-                    && std::get<table_row_id>(r.id) == anchor;
-            });
-
-        auto row_it = std::ranges::find(tbl->rows, anchor);
-        if (row_it != tbl->rows.end()) ++row_it;
-        tbl->rows.insert(row_it, new_id);
-
-        if (it != tbl->ordered_items.end()) ++it;
-        tbl->ordered_items.insert(it, {new_id});
-
-        return new_id;
+        return insert_row_impl(anchor, std::move(cells), insert_direction::after);
     }
     
     bool editor::erase_column(column_id id)
@@ -1761,7 +1833,7 @@ namespace arf
 
         return tid;
     }
-
+/*
     template<typename Tag> 
     table_id editor::insert_table_before( id<Tag> anchor, std::vector<std::string> column_names ) 
     {
@@ -1799,7 +1871,32 @@ namespace arf
 
         return tid;
     }
-    
+*/
+    template<typename Tag>
+    comment_id insert_table_before(id<Tag> anchor, std::vector<std::pair<std::string, std::optional<value_type>>> columns)
+    {
+        return insert_category_item_before(anchor, &editor::append_table, columns);
+    }
+
+    template<typename Tag>
+    comment_id insert_table_after(id<Tag> anchor, std::vector<std::pair<std::string, std::optional<value_type>>> columns)
+    {
+        return insert_category_item_after(anchor, &editor::append_table, columns);
+    }
+
+    template<typename Tag>
+    comment_id insert_table_before(id<Tag> anchor, std::vector<std::string> column_names)
+    {
+        return insert_category_item_before(anchor, &editor::append_table, column_names);
+    }
+
+    template<typename Tag>
+    comment_id insert_table_after(id<Tag> anchor, std::vector<std::string> column_names)
+    {
+        return insert_category_item_after(anchor, &editor::append_table, column_names);
+    }
+
+/*    
     template<typename Tag> 
     table_id editor::insert_table_after( id<Tag> anchor, std::vector<std::string> column_names ) 
     {
@@ -1838,7 +1935,7 @@ namespace arf
 
         return tid;
     }
-
+*/
 //============================================================
 // Comments
 //============================================================
@@ -1876,87 +1973,19 @@ namespace arf
 
     inline bool editor::erase_comment(comment_id id)
     {
-        auto* cn = doc_.get_node(id);
-        if (!cn) return false;
-
-        auto* cat = doc_.get_node(cn->owner);
-        if (!cat) return false;
-
-        // Remove from ordered_items
-        std::erase_if(cat->ordered_items, [&](auto const& r)
-        {
-            return std::holds_alternative<comment_id>(r.id)
-                && std::get<comment_id>(r.id) == id;
-        });
-
-        // Remove from storage
-        auto& comments = doc_.comments_;
-        comments.erase(
-            std::ranges::find_if(comments, [&](auto const& c) {
-                return c.id == id;
-            })
-        );
-
-        return true;
+        return erase_category_child(id, doc_.comments_);
     }
 
     template<typename K>
-    comment_id editor::insert_comment_before(
-        id<K> anchor,
-        std::string_view text)
+    comment_id insert_comment_before(id<K> anchor, std::string_view text)
     {
-        auto* ref = locate_anchor(anchor);
-        if (!ref) return invalid_id<comment_tag>();
-
-        auto* anchor_node = doc_.get_node(anchor);
-        if (!anchor_node) return invalid_id<comment_tag>();
-
-        category_id where = anchor_node->owner;
-
-        comment_id id = append_comment(where, text);
-
-        auto* cat = doc_.get_node(where);
-        auto it = std::ranges::find(cat->ordered_items, *ref);
-
-        if (it != cat->ordered_items.end())
-        {
-            // Remove the auto-appended entry
-            std::erase(cat->ordered_items, document::source_item_ref{id});
-            // Insert at correct position
-            cat->ordered_items.insert(it, {id});
-        }
-
-        return id;
+        return insert_category_child_before(anchor, &editor::append_comment, text);
     }
 
     template<typename K>
-    comment_id editor::insert_comment_after(
-        id<K> anchor,
-        std::string_view text)
+    comment_id insert_comment_after(id<K> anchor, std::string_view text)
     {
-        auto* ref = locate_anchor(anchor);
-        if (!ref) return invalid_id<comment_tag>();
-
-        auto* anchor_node = doc_.get_node(anchor);
-        if (!anchor_node) return invalid_id<comment_tag>();
-
-        category_id where = anchor_node->owner;
-
-        comment_id id = append_comment(where, text);
-
-        auto* cat = doc_.get_node(where);
-        auto it = std::ranges::find(cat->ordered_items, *ref);
-
-        if (it != cat->ordered_items.end())
-        {
-            ++it;
-            // Remove the auto-appended entry
-            std::erase(cat->ordered_items, document::source_item_ref{id});
-            // Insert at correct position
-            cat->ordered_items.insert(it, {id});
-        }
-
-        return id;
+        return insert_category_child_after(anchor, &editor::append_comment, text);
     }
 
 //============================================================
@@ -1996,87 +2025,19 @@ namespace arf
 
     inline bool editor::erase_paragraph(paragraph_id id)
     {
-        auto* pn = doc_.get_node(id);
-        if (!pn) return false;
-
-        auto* cat = doc_.get_node(pn->owner);
-        if (!cat) return false;
-
-        // Remove from ordered_items
-        std::erase_if(cat->ordered_items, [&](auto const& r)
-        {
-            return std::holds_alternative<paragraph_id>(r.id)
-                && std::get<paragraph_id>(r.id) == id;
-        });
-
-        // Remove from storage
-        auto& paragraphs = doc_.paragraphs_;
-        paragraphs.erase(
-            std::ranges::find_if(paragraphs, [&](auto const& p) {
-                return p.id == id;
-            })
-        );
-
-        return true;
+        return erase_category_child(id, doc_.paragraphs_);
     }
 
     template<typename K>
-    paragraph_id editor::insert_paragraph_before(
-        id<K> anchor,
-        std::string_view text)
+    comment_id insert_paragraph_before(id<K> anchor, std::string_view text)
     {
-        auto* ref = locate_anchor(anchor);
-        if (!ref) return invalid_id<paragraph_tag>();
-
-        auto* anchor_node = doc_.get_node(anchor);
-        if (!anchor_node) return invalid_id<paragraph_tag>();
-
-        category_id where = anchor_node->owner;
-
-        paragraph_id id = append_paragraph(where, text);
-
-        auto* cat = doc_.get_node(where);
-        auto it = std::ranges::find(cat->ordered_items, *ref);
-
-        if (it != cat->ordered_items.end())
-        {
-            // Remove the auto-appended entry
-            std::erase(cat->ordered_items, document::source_item_ref{id});
-            // Insert at correct position
-            cat->ordered_items.insert(it, {id});
-        }
-
-        return id;
+        return insert_category_child_before(anchor, &editor::append_paragraph, text);
     }
 
     template<typename K>
-    paragraph_id editor::insert_paragraph_after(
-        id<K> anchor,
-        std::string_view text)
+    comment_id insert_parageraph_after(id<K> anchor, std::string_view text)
     {
-        auto* ref = locate_anchor(anchor);
-        if (!ref) return invalid_id<paragraph_tag>();
-
-        auto* anchor_node = doc_.get_node(anchor);
-        if (!anchor_node) return invalid_id<paragraph_tag>();
-
-        category_id where = anchor_node->owner;
-
-        paragraph_id id = append_paragraph(where, text);
-
-        auto* cat = doc_.get_node(where);
-        auto it = std::ranges::find(cat->ordered_items, *ref);
-
-        if (it != cat->ordered_items.end())
-        {
-            ++it;
-            // Remove the auto-appended entry
-            std::erase(cat->ordered_items, document::source_item_ref{id});
-            // Insert at correct position
-            cat->ordered_items.insert(it, {id});
-        }
-
-        return id;
+        return insert_category_child_after(anchor, &editor::append_paragraph, text);
     }
 
 //============================================================
