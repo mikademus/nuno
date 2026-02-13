@@ -1,6 +1,6 @@
 #include "arf_test_harness.hpp"
 //#include "arf_parser_tests.hpp"
-//#include "arf_materialiser_tests.hpp"
+#include "arf_materialiser_tests.hpp"
 //#include "arf_document_structure_tests.hpp"
 //#include "arf_reflection_tests.hpp"
 //#include "arf_query_tests.hpp"

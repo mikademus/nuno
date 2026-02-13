@@ -279,9 +279,11 @@ inline bool invalid_array_contamination_key()
     return true;
 }
 
-inline bool column_type_change_invalidates_rows()
+inline bool column_type_change_invalidates_rows_untyped_col()
 {
-    constexpr std::string_view src = "# a\n  1\n";
+    constexpr std::string_view src = 
+        "# a\n"      // Untyped column
+        "  1\n";     // String value "1"
     
     auto ctx = load(src);
     auto & doc = ctx.document;
@@ -290,19 +292,42 @@ inline bool column_type_change_invalidates_rows()
     auto tbl = doc.table(table_id{0});
     auto col = tbl->column("a");
     
-    ed.set_column_type(col->id(), value_type::string);
+    // Change to INTEGER type (cell holds string "1")
+    ed.set_column_type(col->id(), value_type::integer);  // ← Mismatch!
     
     auto row = doc.row(tbl->rows().front());
     
-    // FIX: Check contamination, not semantic
     EXPECT(row->is_contaminated(),
         "Row should be contaminated by invalid cell");
     EXPECT(row->is_locally_valid(),
         "Row structure is still valid");
     
-    // Also verify the cell itself is invalid
     EXPECT(row->cells()[0].semantic == semantic_state::invalid,
         "Cell should be invalid due to type mismatch");
+    
+    return true;
+}
+
+inline bool column_type_change_invalidates_rows_typed_col()
+{
+    constexpr std::string_view src = 
+        "# a:int\n"   // Integer column
+        "  1\n";      // Integer value
+    
+    auto ctx = load(src);
+    auto & doc = ctx.document;
+    auto ed = editor(doc);
+    
+    auto tbl = doc.table(table_id{0});
+    auto col = tbl->column("a");
+    
+    // Change to STRING type (cell holds int64_t)
+    ed.set_column_type(col->id(), value_type::string);
+    
+    auto row = doc.row(tbl->rows().front());
+    
+    EXPECT(row->is_contaminated(),
+        "Row should be contaminated by invalid cell");
     
     return true;
 }
@@ -333,7 +358,8 @@ inline void run_editor_tests()
 
     SUBCAT("Contamination / invalidation");
     RUN_TEST(invalid_array_contamination_key);
-    RUN_TEST(column_type_change_invalidates_rows);
+    RUN_TEST(column_type_change_invalidates_rows_untyped_col);
+    RUN_TEST(column_type_change_invalidates_rows_typed_col);
 }
 
 }
