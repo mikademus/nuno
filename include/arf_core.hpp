@@ -1,135 +1,344 @@
 // arf_core.hpp - A Readable Format (Arf!) - Core Data Structures
-// Version 0.2.0
+// Version 0.3.0
+// Copyright 2025 Mikael Ueno A
+// Licenced as-is under the MIT licence.
 
 #ifndef ARF_CORE_HPP
 #define ARF_CORE_HPP
 
+#include <algorithm>
+#include <array>
+#include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
-#include <vector>
-#include <map>
 #include <variant>
-#include <optional>
-#include <memory>
-#include <sstream>
-#include <iomanip>
-#include <functional>
-#include <algorithm>
-#include <stdexcept>
-#include <cstdlib>
-#include <cstring>
+#include <vector>
 
 namespace arf 
 {
-    //========================================================================
-    // CORE DATA STRUCTURES
-    //========================================================================
-    
-    enum class value_type 
+    #define TRACE_IMPL(x) std::cout << std::string(x, '-') << " " << __FUNCTION__ << " line " << __LINE__
+    #define TRACE(ind) TRACE_IMPL(ind) << std::endl    
+    #define TRACE_MSG(ind, msg) TRACE_IMPL(ind) << ": " << msg << std::endl
+
+//========================================================================
+// Forward declarations and selected aliases
+//========================================================================
+
+    struct category;
+
+//========================================================================
+// IDs
+// ---------------------------
+// IDs are opaque handles and never represent positional indices
+// into storage containers.
+//========================================================================
+
+    inline constexpr size_t npos() { return static_cast<size_t>(-1); }
+
+    template <typename Tag>
+    struct id
     {
+        typedef Tag tag_type;
+        typedef size_t value_type;
+
+        value_type val;
+
+        explicit id(value_type v = npos()) : val(v) {}
+        operator size_t() const { return val; }
+        id & operator= (value_type v) { val = v; return *this; }        
+        auto operator<=>(id const &) const = default;
+        id & operator++() { ++val; return *this; }
+        id operator++(int) { id temp = *this; ++val; return temp; }
+        bool valid() const noexcept { return val != npos(); }
+    };
+    
+    template <typename Tag>
+    constexpr id<Tag> invalid_id()
+    {
+        return id<Tag>{ npos() };
+    }
+
+    template<typename Tag>
+    bool valid( id<Tag> id_ )
+    {
+        return id_.valid();
+    }
+
+    struct category_tag;
+    struct table_tag;
+    struct row_tag;
+    struct column_tag;
+    struct key_tag;
+    struct comment_tag;
+    struct paragraph_tag;
+
+    using category_id   = id<category_tag>;
+    using table_id      = id<table_tag>;
+    using row_id        = id<row_tag>;
+    using column_id     = id<column_tag>;
+    using key_id        = id<key_tag>;
+    using comment_id    = id<comment_tag>;
+    using paragraph_id  = id<paragraph_tag>;
+
+//========================================================================
+// Values
+//
+// Note: Avoid manually creating typed_value instances from values, for 
+//       instance for comparisons. typed_value is intended to be generated 
+//       during materialisation when creating the document and will be 
+//       malformed unless all members are set correctly.
+//========================================================================
+    
+    enum struct semantic_state : uint8_t
+    {
+        valid,
+        invalid
+    };
+
+    enum class contamination_state : uint8_t
+    {
+        clean,
+        contaminated
+    };
+
+    enum class value_type
+    {
+        unresolved,
         string,
         integer,
-        decimal,
+        floating_point,
         boolean,
         date,
         string_array,
-        int_array,
-        float_array
-    };
-    
-    using value = std::variant
-                  <
-                      std::string,
-                      int64_t,
-                      double,
-                      bool,
-                      std::vector<std::string>,
-                      std::vector<int64_t>,
-                      std::vector<double>
-                  >;
-    
-    struct column 
-    {
-        std::string name;
-        value_type type;
-        
-        bool operator==(const column& other) const
-        {
-            return name == other.name && type == other.type;
-        }
-    };
-    
-    using table_row = std::vector<value>;
-    
-    enum class decl_kind
-    {
-        key,
-        table_row,
-        subcategory
+        integer_array,
+        floating_point_array
     };
 
-    struct decl_ref
+    static std::array<size_t, 9> value_type_to_variant_index =
     {
-        decl_kind kind;
-        std::string name; // empty for table
-        size_t row_index {0};   // row index (used for table_row)
+        0, // unresolved -> monostate
+        1, // string -> std::string
+        2, // integer -> int64_t
+        3, // floating_point -> double
+        4, // boolean -> bool
+        1, // date -> std::string
+        5, // string_array -> std::vector<typed_value>
+        5, // integer_array -> std::vector<typed_value>
+        5, // floating_point_array -> std::vector<typed_value>
     };
 
-    struct category 
+    enum class type_ascription
     {
-        std::string name;
-        category * parent {nullptr};
-        std::map<std::string, value> key_values;
-        std::vector<column> table_columns;
-        std::vector<table_row> table_rows;
-        std::map<std::string, std::unique_ptr<category>> subcategories;
-        std::vector<decl_ref> source_order;
+        tacit,    // implicit, not defined in source
+        declared  // explicitly defined in source
     };
-    
-    struct document 
+
+    enum class value_locus
     {
-        std::map<std::string, std::unique_ptr<category>> categories;
+        key_value,      // declared via key = value
+        table_cell,     // declared inside a table row
+        array_element,  // declares as an element in an array
+        predicate,      // created as the comparator in a query predicate
     };
-    
-    struct parse_error 
+
+    enum class creation_state
     {
-        size_t line_number;
-        std::string message;
-        std::string line_content;
-        
-        std::string to_string() const 
+        authored,   // defined in an authored source (created from parser/CST)
+        generated   // created after the document (programmatically generated)
+    };
+
+    struct typed_value;
+
+    using value = std::variant<
+        std::monostate,
+        std::string,
+        int64_t,
+        double,
+        bool,
+        std::vector<typed_value>
+    >;
+
+    struct typed_value
+    {
+        value               val;
+        value_type          type;
+        type_ascription     type_source;
+        value_locus         origin;
+        semantic_state      semantic      = semantic_state::valid;
+        contamination_state contamination = contamination_state::clean;
+        creation_state      creation      = creation_state::authored;
+        bool                is_edited     = false;
+
+        std::string value_to_string() const noexcept;
+        value_type held_type() const noexcept;
+    };
+
+    inline std::string typed_value::value_to_string() const noexcept
+    {
+        if (std::holds_alternative<std::string>(val))
+            return std::get<std::string>(val);
+        if (std::holds_alternative<int64_t>(val))
+            return std::to_string(std::get<int64_t>(val));
+        if (std::holds_alternative<double>(val))
+            return std::to_string(std::get<double>(val));
+        if (std::holds_alternative<bool>(val))
+            return std::get<bool>(val) ? "true" : "false";
+
+        return {};
+    }
+
+    value_type held_type(value const &val) noexcept
+    {
+        if (std::holds_alternative<std::string>(val)) return value_type::string;
+        if (std::holds_alternative<int64_t>(val)) return value_type::integer;
+        if (std::holds_alternative<double>(val)) return value_type::floating_point;
+        if (std::holds_alternative<bool>(val)) return value_type::boolean;
+        if (std::holds_alternative<std::vector<typed_value>>(val)) 
         {
-            std::ostringstream oss;
-            oss << "Line " << line_number << ": " << message;
-            if (!line_content.empty())
-                oss << "\n  > " << line_content;
-            return oss.str();
-        }
-    };
-    
-    struct parse_context 
+            auto const & vec = std::get<std::vector<typed_value>>(val);
+            if (!vec.empty())
+                switch (arf::held_type(vec.front().val))
+                {
+                   case value_type::string: return value_type::string_array;
+                   case value_type::integer: return value_type::integer_array;
+                   case value_type::floating_point: return value_type::floating_point_array;
+                   default: break;
+                }
+            }
+
+        return value_type::unresolved;
+    }
+
+    value_type typed_value::held_type() const noexcept { return arf::held_type(val); }
+
+    inline bool is_valid(const typed_value &value)     { return value.semantic == semantic_state::valid; }
+    inline bool is_clean(const typed_value &value)     { return value.contamination == contamination_state::clean; }
+    inline bool is_authored(const typed_value &value)  { return value.creation == creation_state::authored; }
+    inline bool is_generated(const typed_value &value) { return value.creation == creation_state::generated; }
+    inline bool is_edited(const typed_value &value)    { return value.is_edited; }
+
+    //inline bool is_numeric(value_type type)         { return type == value_type::integer || type == value_type::floating_point; }
+    inline bool is_array_type(value_type type)           { return type == value_type::string_array || type == value_type::integer_array || type == value_type::floating_point_array; }
+    //inline bool is_string(value_type type)          { return type == value_type::string; }
+    //inline bool is_boolean(value_type type)         { return type == value_type::boolean; }
+
+    inline bool is_numeric(const typed_value &value) { return std::holds_alternative<int64_t>(value.val) || std::holds_alternative<double>(value.val); }
+    inline bool is_array(const typed_value &value)   { return std::holds_alternative<std::vector<typed_value>>(value.val); }
+    inline bool is_string(const typed_value &value)  { return std::holds_alternative<std::string>(value.val); }
+    inline bool is_boolean(const typed_value &value) { return std::holds_alternative<bool>(value.val); }
+
+//========================================================================
+// Remaining data structures
+//========================================================================
+
+    struct category
     {
-        std::optional<document> doc;
-        std::vector<parse_error> errors;
-        
-        bool has_value() const { return doc.has_value(); }
+        category_id id;
+        std::string name;
+        category_id parent;    // npos for root
+    };
+
+    struct column
+    {
+        column_id       id;
+        std::string     name;
+        value_type      type;
+        type_ascription type_source;
+        std::optional<std::string> declared_type;
+        semantic_state  semantic = semantic_state::valid;
+    };
+
+    struct table_row
+    {
+        row_id id;
+        category_id  owning_category;
+        std::vector<typed_value> cells;
+    };
+
+    struct table
+    {
+        table_id              id;
+        category_id           owning_category;
+        std::vector<column>   columns;
+        std::vector<row_id> rows;   // in authored order
+    };
+
+//========================================================================
+// Document generation context
+//========================================================================
+
+    struct source_location
+    {
+        size_t line {0};    // 1-based
+        size_t column {0};  // 1-based
+    };
+
+    template <typename ERROR_KIND>
+    struct error
+    {
+        ERROR_KIND         kind;
+        source_location    loc;
+        std::string        message;
+    };
+
+    template <typename T, typename ERROR_KIND>
+    struct context
+    {
+        T document;
+        std::vector<error<ERROR_KIND>> errors;
+
+        T * operator->() { return &document; } 
+
         bool has_errors() const { return !errors.empty(); }
-    };
+    };    
     
-    //========================================================================
-    // UTILITY FUNCTIONS
-    //========================================================================
-    
+//========================================================================
+// UTILITY FUNCTIONS
+//========================================================================
+
     namespace detail 
     {
         constexpr size_t MAX_LINES = 1'000'000;
         constexpr std::string_view ROOT_CATEGORY_NAME = "__root__";
         
-        inline std::string_view trim_sv(std::string_view s) 
+        inline value_type array_element_type(value_type array_type)
         {
-            size_t start = s.find_first_not_of(" \t\r\n");
-            if (start == std::string_view::npos) return {};
-            size_t end = s.find_last_not_of(" \t\r\n");
+            switch (array_type)
+            {
+                case value_type::string_array: return value_type::string;
+                case value_type::integer_array:    return value_type::integer;
+                case value_type::floating_point_array:  return value_type::floating_point;
+                default:                       return value_type::unresolved;
+            }
+        }
+
+        inline std::string type_to_string(value_type type)
+        {
+            switch (type)
+            {
+                case value_type::string: return "str";
+                case value_type::integer: return "int";
+                case value_type::floating_point: return "float";
+                case value_type::boolean: return "bool";
+                case value_type::date: return "date";
+                case value_type::string_array: return "str[]";
+                case value_type::integer_array: return "int[]";
+                case value_type::floating_point_array: return "float[]";
+                default: return "str";
+            }
+        }
+
+        inline std::string_view trim_sv(std::string_view s)
+        {
+            const size_t start = s.find_first_not_of(" \t\r\n");
+            if (start == std::string_view::npos)
+                return {};
+
+            const size_t end = s.find_last_not_of(" \t\r\n");
+            if (end == std::string_view::npos || end < start)
+                return {};
+
             return s.substr(start, end - start + 1);
         }
         
@@ -139,21 +348,77 @@ namespace arf
             std::transform(result.begin(), result.end(), result.begin(), ::tolower);
             return result;
         }
-        
-        inline std::string type_to_string(value_type type)
+
+        inline std::optional<value_type>
+        parse_declared_type(std::string_view sv)
         {
-            switch (type)
-            {
-                case value_type::string: return "str";
-                case value_type::integer: return "int";
-                case value_type::decimal: return "float";
-                case value_type::boolean: return "bool";
-                case value_type::date: return "date";
-                case value_type::string_array: return "str[]";
-                case value_type::int_array: return "int[]";
-                case value_type::float_array: return "float[]";
-                default: return "str";
-            }
+            auto s = to_lower(std::string(trim_sv(sv)));
+
+            if (s == "int")     return value_type::integer;
+            if (s == "float")   return value_type::floating_point;
+            if (s == "bool")    return value_type::boolean;
+            if (s == "date")    return value_type::date;
+            if (s == "str")     return value_type::string;
+            if (s == "str[]")   return value_type::string_array;
+            if (s == "int[]")   return value_type::integer_array;
+            if (s == "float[]") return value_type::floating_point_array;
+
+            return std::nullopt;
+        }        
+
+    // -----------------------------------------------------------------------
+    // typed_value creation helpers
+    // Note: no specialisations for arrays
+    // -----------------------------------------------------------------------
+
+        template<typename T>
+        concept strictly_integral = std::integral<T> && !std::same_as<T, bool>;
+
+        template<typename T, typename = void>
+        struct vt_conv;
+
+        template<strictly_integral T>
+        struct vt_conv<T>
+        {
+            enum vtype { vtype = static_cast<int>(value_type::integer) };
+            typedef int64_t stype;
+        };
+
+        template<std::floating_point T>
+        struct vt_conv<T>
+        {
+            enum vtype { vtype = static_cast<int>(value_type::floating_point) };
+            typedef double stype;
+        };
+
+        template<std::same_as<bool> T>
+        struct vt_conv<T>
+        {
+            enum vtype { vtype = static_cast<int>(value_type::boolean) };
+            typedef bool stype;
+        };
+
+        template<typename T>
+            requires std::convertible_to<T, std::string_view>
+        struct vt_conv<T>
+        {
+            enum vtype { vtype = static_cast<int>(value_type::string) };
+            typedef std::string stype;
+        };
+
+        template<typename T>
+        inline typed_value make_typed_value( T value, value_locus orig, creation_state cs )
+        {
+            return typed_value{
+                .val  = typename vt_conv<T>::stype(value),
+                .type = static_cast<value_type>(vt_conv<T>::vtype),
+                .type_source = type_ascription::tacit,
+                .origin = orig,
+                .semantic = semantic_state::valid,
+                .contamination = contamination_state::clean,
+                .creation = cs,
+                .is_edited = false
+            };
         }
     }
     

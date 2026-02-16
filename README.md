@@ -1,9 +1,11 @@
 # Arf! — A Readable Data Format for Configs and Tables
 
+**Version 0.3.0** — February 2026 — Stable implementation with full CRUD support
+
 | Arf! is a compact, deterministic data language designed as a human-centric alternative to JSON, YAML, and TOML that excels where hierarchical configuration meets structured tabular data. | ![mascot](arf_mascot_small.png) |
 |-------------------------------------------------------------------------------------------------------------------------------|---------------------------------------|
 
-Arf! (“A Readable Format”, also the bark of an enthusiastic small dog) is a compact, predictable, deterministic and explicitly scoped data language built for human readability without giving up structure. It mixes hierarchical categories, key/value pairs, and TOON-style tables[^1] (column-aligned, whitespace-delimited) that can be subdivided into named subsections.
+Arf! ("A Readable Format", also the bark of an enthusiastic small dog) is a compact, predictable, deterministic and explicitly scoped data language built for human readability without giving up structure. It mixes hierarchical categories, key/value pairs, and TOON-style tables[^1] (column-aligned, whitespace-delimited) that can be subdivided into named subsections.
 
 The goals are simple:
 
@@ -52,22 +54,31 @@ Examples of areas of particular suitability:
 * **System Administration**: Configuration files that won't break on a copy-paste error.
 * **Data Science**: Small, readable datasets that require more hierarchy than a CSV but less overhead than a database.
 
-### Also see:
-* Details on [the query interface](docs/query_interface.md)
-* Details on [the serialiser](docs/serializer_interface.md)
+### Documentation & APIs
+
+**Format Specification:**
+- Complete syntax guide (in this document below)
+
+**C++ Implementation (0.3.0):**
+- [Query Interface](query_interface.md) — High-level data access and query DSL
+- [Query Syntax](query_dotpath_syntax.md) — Dot-path query expressions  
+- API Reference — Inline documentation in header files
+
+**Getting Started:**
+- See "Using Arf! in C++" section below
 
 ## Philosophy: The Human-First Protocol, Built for Speed
 
 Most modern data formats are designed solely for transmission (JSON) or system-level automation (YAML). They prioritize rigid schemas or opaque parsing rules. Arf! is built on the belief that for many tasks—configuration, world-building, and creative data entry—clarity for the human writer can co-exist with trivial parsing for the machine.
 
-1. **Readability is Not a "Feature"; It’s the Goal**<br />
-In Arf!, you should be able to scan a file and understand its hierarchy through visual landmarks (colons and slashes) rather than counting invisible whitespace or matching nested braces. If you can’t read it comfortably, it’s a chore.
+1. **Readability is Not a "Feature"; It's the Goal**<br />
+In Arf!, you should be able to scan a file and understand its hierarchy through visual landmarks (colons and slashes) rather than counting invisible whitespace or matching nested braces. If you can't read it comfortably, it's a chore.
 2. **The "Copy-Paste" Safety Principle**<br />
 One of the greatest frustrations with indentation-based formats (like YAML or TOON) is that moving a block of text can silently change its meaning or break the parser. Arf! uses explicit scoping that preserves structural integrity no matter where you paste the data.
 3. **Determinism Over "Magic"**<br />
 Arf! avoids "magic" parsing. In YAML, the string NO might be converted to a boolean false automatically. In Arf!, a string is a string. We believe the computer should never have to guess what the human meant. This deterministic structure is precisely what allows for fast, simple machine parsing.
 4. **Tables are First-Class Citizens**<br />
-Data isn't just trees; it’s often rows. Forcing tabular data into nested Key/Value pairs (JSON) or repetitive arrays (TOML) is an ergonomic failure. Arf! treats the Table as a primary construct, allowing humans to maintain the "spreadsheet view" they naturally prefer for lists of entities.
+Data isn't just trees; it's often rows. Forcing tabular data into nested Key/Value pairs (JSON) or repetitive arrays (TOML) is an ergonomic failure. Arf! treats the Table as a primary construct, allowing humans to maintain the "spreadsheet view" they naturally prefer for lists of entities.
 5. **Graceful Degradation**<br />
 Arf! is designed to be "hand-rolled." You shouldn't need a specialized IDE plugin to write a config file. By allowing whitespace freedom outside of tables and offering simple shorthand closures (/), Arf! scales easily.
 
@@ -100,6 +111,154 @@ entities:
 ```
 This example is intentionally verbose, using explicit named closures inside a table to demonstrate scope. Shorthand syntax exists.
 
+## Using Arf! in C++
+
+### Quick Start
+
+**Include the framework:**
+```cpp
+#include "arf.hpp"
+```
+
+**Read and query a document:**
+```cpp
+auto ctx = arf::load_file("config.arf");
+if (ctx.has_errors()) {
+    for (auto& err : ctx.errors) {
+        std::cerr << err.message << "\n";
+    }
+    return;
+}
+
+auto& doc = ctx.document;
+
+// High-level queries
+auto resolution = arf::query(doc, "settings.graphics.resolution").as_string();
+auto fullscreen = arf::query(doc, "settings.graphics.fullscreen").as_boolean();
+
+std::cout << "Resolution: " << *resolution << "\n";
+std::cout << "Fullscreen: " << (*fullscreen ? "yes" : "no") << "\n";
+```
+
+**Navigate document structure:**
+```cpp
+auto root = doc.root();
+auto settings = doc.category("settings");
+
+// Iterate keys
+for (auto key_id : settings->keys()) {
+    auto key = doc.key(key_id);
+    std::cout << key->name() << "\n";
+}
+
+// Access tables
+auto entities_cat = doc.category("entities");
+for (auto table_id : entities_cat->tables()) {
+    auto table = doc.table(table_id);
+    for (auto row_id : table->rows()) {
+        auto row = doc.row(row_id);
+        // Access cells...
+    }
+}
+```
+
+**Create and edit documents:**
+```cpp
+arf::document doc;
+doc.create_root();
+
+arf::editor ed(doc);
+
+// Create category and keys
+auto settings_id = ed.append_category(doc.root()->id(), "settings");
+ed.append_key(settings_id, "version", std::string("1.0.0"));
+ed.append_key(settings_id, "port", 8080);
+
+// Create typed table
+auto table_id = ed.append_table(settings_id, {
+    {"name", arf::value_type::string},
+    {"enabled", arf::value_type::boolean}
+});
+
+// Add rows
+ed.append_row(table_id, {std::string("feature_x"), true});
+ed.append_row(table_id, {std::string("feature_y"), false});
+
+// Edit existing values
+auto version_key = arf::query(doc, "settings.version").key_id();
+ed.set_key_value(*version_key, std::string("2.0.0"));
+```
+
+**Serialize to file:**
+```cpp
+std::ofstream out("output.arf");
+arf::serializer s(doc);
+s.write(out);
+// Preserves authored structure and order
+```
+
+### Architecture Overview
+
+The Arf! C++ implementation provides a complete document framework:
+
+**Core Modules:**
+- **Parser** (`arf_parser.hpp`) — Lexical analysis and CST generation
+- **Materializer** (`arf_materialise.hpp`) — Document construction with semantic validation
+- **Document** (`arf_document.hpp`) — Data model with stable IDs, views, and metadata
+- **Query** (`arf_query.hpp`) — High-level ergonomic data access with query DSL
+- **Reflection** (`arf_reflect.hpp`) — Low-level address-based inspection for tooling
+- **Editor** (`arf_editor.hpp`) — Type-safe CRUD operations (required for document mutation)
+- **Serializer** (`arf_serializer.hpp`) — Source-faithful output generation
+
+**Key Design Features:**
+- **Stable Entity IDs** — All entities have persistent, type-safe handles
+- **Immutable Views** — Document internals hidden; views provide read-only access
+- **Semantic Validation** — Automatic type checking with contamination tracking
+- **Source Preservation** — Round-trip serialization maintains authored structure
+- **Edit Tracking** — Documents know what was modified post-parse
+- **Contamination Propagation** — Invalid values mark containers as contaminated
+
+**Document Lifecycle:**
+```
+Source Text → Parser (CST) → Materializer → Document
+                                               ↓
+                                            Query / Reflect
+                                               ↓
+                                            Editor (mutations)
+                                               ↓
+                                            Serializer → Output Text
+```
+
+### Requirements & Integration
+
+**Requirements:**
+- C++20 compiler
+- Header-only library
+- No external dependencies
+
+**Integration:**
+
+Single-file include:
+```cpp
+#include "arf.hpp"  // All modules
+```
+
+Selective includes:
+```cpp
+#include "arf_core.hpp"       // Core types only
+#include "arf_parser.hpp"     // Parser
+#include "arf_query.hpp"      // Query interface
+#include "arf_editor.hpp"     // Editor API
+// etc.
+```
+
+**Build System:**
+```cmake
+# CMake example
+target_include_directories(my_app PRIVATE path/to/arf/include)
+target_compile_features(my_app PRIVATE cxx_std_20)
+```
+
 ## Rationale
 
 * JSON is rigid and noisy.
@@ -108,16 +267,11 @@ This example is intentionally verbose, using explicit named closures inside a ta
 * TOON tables are lovely but limited.
 
 Arf! attempts to unify the strengths of each:
-* JSON’s predictability
-* YAML’s readability
-* TOML’s clarity
-* TOON’s table ergonomics
+* JSON's predictability
+* YAML's readability
+* TOML's clarity
+* TOON's table ergonomics
 …while discarding their pain points.
-
-## Note on 0.2.0
-
-> [!WARNING]
-> Arf! is divided into three areas of resposibility: parsing, querying and serialisation. Serialisation is intended to be document-ordered and retain the order and structure of a parsed document. Note that **in this version** the serialiser _normalises data to canonical order_. This will be amended in 0.3.0.
 
 # Syntax Overview
 ## Basic constructs
@@ -207,9 +361,8 @@ Categories are explicitly declared (```name:``` or ```:name```) and closed (```/
 A **top-level category** is a name that ends with a colon:
 ```scala
 settings:
-graphics:
+/settings
 ```
-Top-level categories always originate from the root and reset any existing nesting of subcategories, thus they do not need to but may be explicitly closed.
 
 Note that Arf allows for definitions in the root:
 ```scala
@@ -291,7 +444,7 @@ and--just like values--default to string if not typed.
 A table is scoped to the category in which its header is defined (the **owning category**). The table remains active while parsing that category and any of its subcategories, and ends when that category is closed or when non-table data is encountered.
 
 Or more formally, a table remains active until one of the following occurs:
-* a key–value pair is encountered within the table’s owning category or its subcategories,
+* a key–value pair is encountered within the table's owning category or its subcategories,
 * a new table header is defined,
 * the category in which the table was defined is closed,
 * a new top-level category begins.
@@ -338,7 +491,7 @@ Closing header closes the table within it.
 
 
 > [!NOTE]
-> Closing the table’s owning category ends the table; closing a participating subcategory resumes the parent scope.
+> Closing the table's owning category ends the table; closing a participating subcategory resumes the parent scope.
 
 ## Practical Demonstration
 A larger example showing structure, nested categories, tables, and explicit closure:
@@ -389,7 +542,7 @@ world:
 | JSON | ubiquitous, strict | noisy, no comments, no tables | Arf! is easier to read and write, supports comments and tables. |
 | YAML | expressive | indentation traps, surprising coercions, many foot-guns | Arf! avoids indentation entirely and keeps rules deterministic. |
 | TOML | predictable, well structured | verbose, no table subcategories | Arf! supports structured tables and hierarchical organisation. |
-| TOON | clean tables | linear, no hierarchy | Arf! brings TOON’s tabular clarity into a hierarchical world. |
+| TOON | clean tables | linear, no hierarchy | Arf! brings TOON's tabular clarity into a hierarchical world. |
 
 ## Why Choose Arf!
 * Straightforward hierarchical structure
