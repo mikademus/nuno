@@ -394,9 +394,7 @@ for (auto table_id : entities_cat->tables()) {
 
 **Create and edit documents:**
 ```cpp
-arf::document doc;
-doc.create_root();
-
+arf::document doc = arf::create_document();
 arf::editor ed(doc);
 
 // Create category and keys
