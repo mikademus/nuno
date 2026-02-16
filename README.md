@@ -2,7 +2,7 @@
 
 **Version 0.3.0** — February 2026 — Stable implementation with full CRUD support
 
-| Arf! is a compact, deterministic data language designed as a human-centric alternative to JSON, YAML, and TOML that excels where hierarchical configuration meets structured tabular data. | ![mascot](arf_mascot_small.png) |
+| Arf! is a compact, deterministic data language designed as a human-centric alternative to JSON, YAML, and TOML that excels where literate documentation meets structured data — interweave prose, tables, and hierarchies in one human-centric format. | ![mascot](arf_mascot_small.png) |
 |-------------------------------------------------------------------------------------------------------------------------------|---------------------------------------|
 
 Arf! ("A Readable Format", also the bark of an enthusiastic small dog) is a compact, predictable, deterministic and explicitly scoped data language built for human readability without giving up structure. It mixes hierarchical categories, key/value pairs, and TOON-style tables[^1] (column-aligned, whitespace-delimited) that can be subdivided into named subsections.
@@ -26,6 +26,7 @@ The goals are simple:
 | :---                    | ---   | ---   | ---   | ---   | ---   | --- |
 | Indentation Sensitivity | ❌    | ✅    | ❌    | n/a   | ❌    |     |
 | Comments	               | ❌	   | ✅	   | ✅	   | ⚠️    | ✅    | TOON: By convention, not by specification  |
+| Free-form Prose         | ❌    | ❌    | ❌    | ❌    | ✅    | Arf!: First-class paragraphs alongside data |
 | Key/values	             | ✅	   | ✅	   | ✅	   | ❌    | ✅    |     |
 | Native Tables	          | ❌	   | ❌	   | ❌	   | ✅    | ✅    | TOON: CSV-style tabular arrays |
 | No-Quote Strings	       | ❌	   | ✅	   | ❌	   | ✅    | ✅    |     |
@@ -50,8 +51,11 @@ Arf! aims to be the practical everyday format for configs, content files, world 
 ### Use cases
 
 Examples of areas of particular suitability:
-* **Game Development**: Storing entity definitions and loot tables.
-* **System Administration**: Configuration files that won't break on a copy-paste error.
+* **System Administration**: Configuration files that won't break on a copy-paste error and may contain natural language in-line documentation.
+* **Technical Writing**: API documentation with configuration examples
+* **Game Development**: Character sheets, item databases, quest trees with narrative
+* **RPG Design**: Monster manuals, spell compendiums, campaign settings with lore
+* **Research**: Annotated datasets where context travels with data
 * **Data Science**: Small, readable datasets that require more hierarchy than a CSV but less overhead than a database.
 
 ### Documentation & APIs
@@ -84,9 +88,14 @@ Arf! is designed to be "hand-rolled." You shouldn't need a specialized IDE plugi
 
 While other formats create complex problems that require complex parsers, Arf! provides elegant simplicity for both the human author and the machine reader.
 
-## Quick Example
+## Quick Examples
+
+### Configuration files
 
 ```scala
+// Game settings and configuration
+// Demoinstrates Arf! used as .INI-replacement
+
 settings:
   version = 1.0.0
   seed = 12345
@@ -110,6 +119,140 @@ entities:
 /entities
 ```
 This example is intentionally verbose, using explicit named closures inside a table to demonstrate scope. Shorthand syntax exists.
+
+### Flowing document with prose and data interwoven
+
+```scala
+// Character Sheet - Theron Ashblade
+// Demonstrates Arf! as a literature-with-data format
+
+character:
+  name = Theron Ashblade
+  class = Ranger
+  level = 7
+
+Theron grew up in the Ashwood Forest, learning to track and hunt 
+from his father. When bandits destroyed his village, he swore an 
+oath of vengeance and now wanders the realm seeking justice.
+
+  :attributes
+    # stat       base    modifier
+      strength   14      +2
+      dexterity  18      +4
+      wisdom     15      +2
+  /
+
+  :equipment
+    # item             type      damage  notes
+      Longbow          weapon    1d8     +1 to hit in forests
+      Hunting Knife    weapon    1d4     Throwable
+      Leather Armor    armor     AC 13   Silent movement
+  /
+
+Theron's tracking abilities are legendary. He can identify a 
+creature's species, size, and traveling speed from footprints 
+alone, even in adverse weather.
+
+  :abilities
+    # name              cost      effect
+      Hunter's Mark     1 action  +1d6 damage to marked target
+      Vanish            bonus     Become invisible until next turn
+  /
+/character
+```
+This example uses shorthand close notation ("/" by itself) to cut down on visual boilerplate.
+
+## Literate Data: Prose Meets Structure
+
+Arf! 0.3.0 introduces **paragraphs** — first-class prose blocks that live alongside your data. This enables entirely new use cases where documentation and data need to coexist. Example use cases:
+
+### Technical Documentation
+Interleave explanations with configuration:
+```scala
+database_config:
+
+This configuration controls the connection pool settings.
+Increase max_connections for high-traffic applications, but
+be mindful of your database server's resource limits.
+
+  # setting          value   notes
+    max_connections  100     Per application instance
+    timeout_ms       5000    Connection acquisition timeout
+    retry_attempts   3       Before giving up
+
+The connection pool uses a least-recently-used eviction policy.
+Idle connections are closed after 30 minutes of inactivity.
+
+  pool_behavior = LRU
+  idle_timeout = 1800
+/database_config
+```
+
+### RPG Content
+Mix character descriptions, lore, and mechanics:
+```scala
+monster_manual:
+
+The Shadow Drake is a rare subspecies of dragon that dwells in 
+ancient ruins. Unlike its fire-breathing cousins, it exhales 
+pure darkness that extinguishes light sources and causes despair.
+
+  # name           cr   hp   ac   attacks
+    Shadow Drake   7    85   16   Bite, Darkness Breath
+
+  :lore
+    habitat = Ancient ruins, deep caves
+    alignment = Chaotic Evil
+    diet = Carrion, unwary adventurers
+  /
+
+  Tales speak of a Shadow Drake that guards the Tomb of Kings,
+  grown massive from centuries of feeding on treasure seekers.
+/monster_manual
+```
+
+### Game Dialogue
+Narrative choices with mechanical consequences:
+```scala
+quest_dialog:
+
+   "Please, you must help us!" the village elder pleads.
+   "Bandits have taken our harvest. Without it, we'll starve."
+
+  :choice_1
+    text = "I'll handle the bandits."
+    
+    # consequence    type       value
+      reputation     faction    Village +10
+      quest_start    id         bandit_raid
+      reward         gold       50
+    /
+
+  :choice_2
+    text = "Not my problem."
+    
+    # consequence    type       value
+      reputation     faction    Village -20
+      alignment      shift      -1
+    /
+
+    The elder's face falls as you turn away. You can hear
+    quiet sobbing as you leave the village square.
+/quest_dialog
+```
+
+**Key Benefits:**
+- **Single source of truth** — Data and documentation stay synchronized
+- **Human-readable** — Non-technical stakeholders can read and understand
+- **Version control friendly** — Prose and data changes tracked together
+- **Literate programming** — Explain *why* alongside *what*
+
+This makes Arf! ideal for:
+- Game design documents with embedded data
+- Technical manuals with live configuration
+- Annotated datasets for research
+- Living documentation that includes examples
+- RPG sourcebooks and supplements
 
 ## Using Arf! in C++
 
@@ -353,6 +496,47 @@ Each array element has semantic context from its containing structure (key name,
 // familiar from C++, Java, C#, etc.
 ```
 
+### Paragraphs
+
+Free-form prose blocks for documentation, narrative, or explanation:
+```scala
+This is a paragraph. It can contain any text and spans
+until the next structural item. 
+ 
+Paragraphs are first-class entities, tracked and serialized
+in document order alongside keys, tables, categories, and comments.
+Everything that is not Arf structure will be retained as paragraphs.
+```
+
+**Characteristics:**
+- Anything not data, comment or structure is a paragraph 
+- Preserve authored order in serialization
+- Can appear anywhere: root, categories, between table rows
+- Multiple consecutive paragraph lines form logical blocks
+
+**Common uses:**
+- Documenting configuration sections
+- Narrative text in game content
+- Explanatory notes in datasets
+- Lore and flavor text
+- Multi-line descriptions
+
+**Example:**
+```scala
+weapons:
+  Medieval European swords, categorized by battlefield role.
+  All weights assume standard steel construction.
+
+  # name            type        weight_kg  damage
+    Longsword       two-handed  1.5        1d10
+    Arming Sword    one-handed  1.1        1d8
+
+  Historically, the arming sword was the most common knightly 
+  weapon, while longswords were specialist weapons for mounted 
+  combat and ceremonial use.
+/weapons
+```
+
 ## Categories and hierarchies
 The file can be structured into categories and subcategories to form a hierarchy.
 
@@ -545,6 +729,7 @@ world:
 | TOON | clean tables | linear, no hierarchy | Arf! brings TOON's tabular clarity into a hierarchical world. |
 
 ## Why Choose Arf!
+* **Literate data** Mix prose paragraphs with structured content seamlessly (unique)
 * Straightforward hierarchical structure
 * Tables with subdivision (rare and extremely useful)
 * Minimal and predictable syntax
