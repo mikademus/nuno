@@ -1,4 +1,4 @@
-# Dot‑path syntax (Arf! query 0.3.0)
+# Dot‑path syntax (NUNO query 0.3.0)
 
 Dot‑paths are *addresses*, not a second query language. They navigate document structure in document order and may explicitly switch into table axes (tables, rows, columns) using specialised selectors.
 
@@ -36,7 +36,7 @@ Array indexing is only valid when the current value is an array. Using an index 
 
 This explicit form avoids ambiguity with other pluralities and keeps positional access type-specific.
 
-**Arf! arrays are single-dimensional only.** Chaining index operations
+**NUNO arrays are single-dimensional only.** Chaining index operations
 (e.g., `arr.[0].[1]`) is never meaningful and will fail at the second
 index attempt.
 

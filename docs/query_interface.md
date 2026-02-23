@@ -3,7 +3,7 @@ Version 0.3.0
 
 ## Query interface principles
 
-The Arf! query API is a human-facing, read-oriented interface for retrieving values from a document. It is intentionally distinct from reflection.
+The NUNO query API is a human-facing, read-oriented interface for retrieving values from a document. It is intentionally distinct from reflection.
 
 * The query API is optimised for human ergonomics and clarity. 
 * Tooling, mutation, and structural introspection belong to reflection.
@@ -239,7 +239,7 @@ Basic syntax:
 Dot-paths and flowing predicates perform the same narrowing operations.
 
 ```cpp
-     auto ctx = load(arf_string);
+     auto ctx = load(nuno_string);
      auto res = query(ctx.document, "servers.europe.poland.ip");
      auto opt_int = res.as_integer();
 ```

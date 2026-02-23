@@ -1,6 +1,5 @@
-// world_config.arf
+// world_config.nuno
 world_metadata:
-    author = "Mika"
     version = 2.1.0
     theme:str = grim_dark
 
